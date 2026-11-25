@@ -1,0 +1,25 @@
+{
+  "_说明": "分镜清单：清晨厨房的猫，4 条 × 5 秒，共 20 秒。自动隔离输出到 outputs/videos/kitchen_cat_shots/。",
+  "out_dir": "outputs/videos/kitchen_cat",
+  "prompt_node": null,
+  "server": "http://127.0.0.1:8188",
+  "shots": [
+    {
+      "id": "shot01",
+      "prompt": "Cinematic live-action look, warm documentary style, shot on 35mm: low morning sun through an east-facing window, long soft shadows across a worn wooden floor, warm amber highlights, shallow depth of field, subtle film grain. Wide shot from the doorway: a small sunlit kitchen with cream walls and open wooden shelves, a ginger tabby cat with a white chest sitting upright on the windowsill in the foreground, steam curling up from a black kettle on the stove behind, dust motes drifting in the sunbeam. Camera: handheld, gentle and steady. Audio: kettle whistling softly, faint birdsong through the window. No text, subtitles, logos or watermarks, no animation or cartoon rendering, keep the live-action texture."
+    },
+    {
+      "id": "shot02",
+      "prompt": "Cinematic live-action look, warm documentary style, shot on 35mm: low morning sun, warm amber highlights, shallow depth of field, subtle film grain, natural fur texture. Close-up on the ginger tabby cat's face on the windowsill: green eyes tracking a dust mote drifting in the sunbeam, ears twitching once, whiskers catching the light, fur detail sharp. Camera: slow push-in, handheld, gentle and steady. Audio: faint birdsong, a soft room tone. No text, subtitles, logos or watermarks, no animation or cartoon rendering, no morphing, keep the live-action texture."
+    },
+    {
+      "id": "shot03",
+      "prompt": "Cinematic live-action look, warm documentary style, shot on 35mm: low morning sun, warm amber highlights, shallow depth of field, subtle film grain. Medium shot: the owner's hand pours dark coffee from a glass carafe into a cream ceramic mug, steam rising in a thin ribbon, the ginger tabby cat on the windowsill turns its head toward the sound, tail tip flicking. Camera: handheld, gentle and steady, slight push-in. Audio: coffee pouring in a steady stream, ceramic mug clinking softly on the counter. No text, subtitles, logos or watermarks, no animation or cartoon rendering, no extra limbs or morphing, keep the live-action texture."
+    },
+    {
+      "id": "shot04",
+      "prompt": "Cinematic live-action look, warm documentary style, shot on 35mm: low morning sun, long shadows across a worn wooden floor, warm amber highlights, shallow depth of field, subtle film grain. The ginger tabby cat leaps down from the windowsill, lands softly on the wooden floor, and pads toward the camera, tail held high, paws silent on the wood, morning light stripes across the floor behind it. Camera: low angle, handheld, gentle and steady. Audio: floorboard creaking once under the cat's paws, faint birdsong, a soft piano note underneath. No text, subtitles, logos or watermarks, no animation or cartoon rendering, no flickering objects, keep the live-action texture."
+    }
+  ],
+  "workflow": "workflows/minimax_h3_video.json"
+}

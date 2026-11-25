@@ -1,0 +1,39 @@
+{
+  "_说明": "清晨厨房的猫（扁平插画风，6 张）。全组锁定种子 42 保风格连贯。",
+  "images": [
+    {
+      "id": "img01",
+      "prompt": "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. A ginger tabby cat with a white chest and green eyes sits on a sunny windowsill in a cozy morning kitchen, steam rising from a black kettle on the stove, wooden floor, potted herbs on open shelves, warm golden sunlight streaming through a tall window, dust motes in the sunbeam.",
+      "seed": 42
+    },
+    {
+      "id": "img02",
+      "prompt": "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. Close-up on a ginger tabby cat with a white chest and green eyes, green eyes watching a dust mote, ears perked, whiskers catching the light, warm morning sun on its fur, soft teal shadows in the background.",
+      "seed": 42
+    },
+    {
+      "id": "img03",
+      "prompt": "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. A hand pours dark coffee from a glass carafe into a cream ceramic mug on the kitchen counter, steam rising in a thin ribbon, a ginger tabby cat with a white chest and green eyes sits on the windowsill turning its head toward the sound, tail tip flicking.",
+      "seed": 42
+    },
+    {
+      "id": "img04",
+      "prompt": "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. A ginger tabby cat with a white chest and green eyes leaps down from the windowsill, mid-air, tail held high, paws tucked, morning light stripes across the wooden floor below.",
+      "seed": 42
+    },
+    {
+      "id": "img05",
+      "prompt": "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. Low angle at floor level: a ginger tabby cat with a white chest and green eyes pads toward the camera across the wooden floor, tail held high, a blue ceramic food bowl waiting ahead, warm sunlight and long soft shadows.",
+      "seed": 42
+    },
+    {
+      "id": "img06",
+      "prompt": "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. A ginger tabby cat with a white chest and green eyes eats from a small blue ceramic bowl, a hand sets down a white plate beside it, morning light across the kitchen, kettle steaming on the stove, cozy and calm.",
+      "seed": 42
+    }
+  ],
+  "negative_prompt": "photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws",
+  "out_dir": "outputs/images/kitchen_cat",
+  "server": "http://127.0.0.1:8188",
+  "workflow": "workflows/sdxl_image_api.json"
+}

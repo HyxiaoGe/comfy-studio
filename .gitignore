@@ -1,0 +1,15 @@
+# Generated outputs (images, videos, concat lists)
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+
+# macOS / Editors
+.DS_Store
+.vscode/
+.idea/

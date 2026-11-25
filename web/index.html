@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comfy Studio · 创作工作台</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #cbd5e1;
+    --text: #1e293b;
+    --muted: #64748b;
+  }
+  body {
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    max-width: 860px;
+    margin: 28px auto;
+    padding: 0 16px 48px;
+    color: var(--text);
+    background: var(--bg);
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  h1 { font-size: 22px; margin: 0; }
+  #health { font-size: 13px; color: var(--muted); }
+  #health .ok { color: #16a34a; font-weight: 500; }
+  #health .bad { color: #dc2626; font-weight: 500; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 14px; }
+  label:first-child { margin-top: 0; }
+  .hint { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px; }
+
+  textarea, input[type="text"], input[type="number"], select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 11px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    font-family: inherit;
+    line-height: 1.5;
+  }
+  textarea:focus, input:focus, select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+
+  .preset-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: #f1f5f9;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .preset-bar-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    white-space: nowrap;
+  }
+  .preset-bar select {
+    flex: 1;
+    min-width: 220px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .chip {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+  }
+  .chip:hover {
+    background: #dbeafe;
+  }
+
+  .row-inline {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .row-inline input { flex: 1; }
+
+  button {
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    border: 0;
+    border-radius: 6px;
+    background: var(--primary);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover:not(:disabled) { background: var(--primary-hover); }
+  button:disabled { background: #94a3b8; cursor: not-allowed; }
+
+  button.btn-secondary {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    white-space: nowrap;
+  }
+  button.btn-secondary:hover:not(:disabled) { background: #e2e8f0; }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+  }
+  .checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* 进度条区域 */
+  #progress-wrap {
+    display: none;
+    margin-top: 18px;
+    background: var(--card);
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .progress-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .progress-bar-bg {
+    width: 100%;
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  #progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--primary);
+    transition: width 0.3s ease;
+  }
+
+  /* 结果网格 */
+  #results {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .card-img-wrap {
+    position: relative;
+    background: #f1f5f9;
+    aspect-ratio: 1 / 1;
+  }
+  .card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    cursor: zoom-in;
+  }
+  .card.rerolling .card-img-wrap::after {
+    content: "重绘中...";
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .card-body {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+  }
+  .card-prompt {
+    font-size: 12px;
+    color: #475569;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.4;
+  }
+  .card-footer {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid #f1f5f9;
+    padding-top: 8px;
+  }
+  .card-footer a {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  .card-footer a:hover { text-decoration: underline; }
+  .btn-reroll {
+    padding: 4px 9px;
+    font-size: 12px;
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+  }
+  .btn-reroll:hover:not(:disabled) { background: #e2e8f0; }
+
+  /* 预览大图弹窗 */
+  #lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.82);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    cursor: zoom-out;
+  }
+  #lightbox img {
+    max-width: 95vw;
+    max-height: 92vh;
+    border-radius: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Comfy Studio</h1>
+  <div id="health">正在检查服务状态……</div>
+</div>
+
+<div class="panel">
+  <!-- 整套分镜故事模板选择 -->
+  <div class="preset-bar">
+    <span class="preset-bar-title">📚 整套故事模板：</span>
+    <select id="story-preset">
+      <option value="">-- 选择预设故事（一键填充前缀、分镜与负提示词） --</option>
+    </select>
+    <button type="button" id="apply-preset" class="btn-secondary">填充模板</button>
+  </div>
+
+  <label for="prefix">公共风格 / 角色前缀 <span class="hint">自动拼接到下方每行提示词前，锁死画风与主角</span></label>
+  <input id="prefix" type="text" placeholder="选择下方快捷画风标签，或直接输入公共风格+角色描述">
+  <div class="chip-row" id="style-chips"></div>
+
+  <label for="prompts">分镜提示词（一行一张图） <span class="hint" id="line-count">0 张</span></label>
+  <textarea id="prompts" rows="7" placeholder="每行一段场景/动作描述，每行出一张图"></textarea>
+
+  <label for="negative">负提示词</label>
+  <input id="negative" type="text" value="photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws">
+
+  <label for="seed">种子（Seed） <span class="hint">全组同一颗，保风格连贯</span></label>
+  <div class="row-inline">
+    <input id="seed" type="number" value="42">
+    <button type="button" id="rand-seed" class="btn-secondary">🎲 随机</button>
+  </div>
+
+  <div class="actions">
+    <button id="run">开始批量生成</button>
+    <label class="checkbox-label">
+      <input type="checkbox" id="auto-rand"> 每次运行前自动换新种子
+    </label>
+  </div>
+</div>
+
+<div id="progress-wrap">
+  <div class="progress-head">
+    <span id="status">准备中……</span>
+    <span id="status-pct">0%</span>
+  </div>
+  <div class="progress-bar-bg">
+    <div id="progress-bar"></div>
+  </div>
+</div>
+
+<div id="results"></div>
+
+<div id="lightbox" onclick="this.style.display='none'">
+  <img id="lightbox-img" src="" alt="预览">
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let timer = null;
+let currentCards = [];
+
+// 1. 内置快捷风格与主角前缀胶囊（点击即填入前缀框）
+const STYLE_CHIPS = [
+  {
+    label: "🧡 扁平绘本风 · 橘猫主角",
+    prefix: "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. A ginger tabby cat with a white chest and green eyes"
+  },
+  {
+    label: "🎨 温馨水彩绘本 · 柴犬主角",
+    prefix: "Soft watercolor children's picture book illustration, hand-painted paper texture, warm pastel colors, gentle lighting, no text. A chubby Shiba Inu puppy wearing a red scarf"
+  },
+  {
+    label: "✨ 吉卜力治愈动画风 · 小女孩",
+    prefix: "Anime background art style, hand-painted cel shading, lush natural scenery, warm golden hour sunlight, nostalgic healing atmosphere, no text. A 6-year-old girl with short brown bob hair and a yellow sundress"
+  },
+  {
+    label: "🖍️ 蜡笔手绘童话风 · 小兔子",
+    prefix: "Crayon and colored pencil texture illustration, whimsical storybook art, soft cream background, cozy organic lines, no text. A little white bunny with long floppy ears and a blue knitted sweater"
+  },
+  {
+    label: "🌌 科普扁平矢量风（无固定主角）",
+    prefix: "Modern flat vector editorial illustration, clean geometric shapes, rich deep navy and vibrant coral color palette, soft gradients, educational infographic art style, no text."
+  }
+];
+
+// 2. 内置完整分镜故事预设（含前缀 + 多行分镜 + 适配的负提示词）
+const STORY_PRESETS = [
+  {
+    id: "kitchen_cat",
+    name: "🐱 清晨厨房的猫（6张 · 扁平插画风）",
+    prefix: "Flat vector illustration, children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text. A ginger tabby cat with a white chest and green eyes",
+    negative: "photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws",
+    seed: 42,
+    prompts: [
+      "sits on a sunny windowsill in a cozy morning kitchen, steam rising from a black kettle on the stove, wooden floor, potted herbs on open shelves, warm golden sunlight streaming through a tall window, dust motes in the sunbeam.",
+      "close-up, green eyes watching a floating dust mote, ears perked, whiskers catching the light, warm morning sun on its fur, soft teal shadows in the background.",
+      "sits on the windowsill turning its head toward the kitchen counter where a hand pours dark coffee from a glass carafe into a cream ceramic mug, steam rising in a thin ribbon, tail tip flicking.",
+      "leaps down from the windowsill, mid-air, tail held high, paws tucked, morning light stripes across the wooden floor below.",
+      "low angle at floor level, pads toward the camera across the wooden floor, tail held high, a blue ceramic food bowl waiting ahead, warm sunlight and long soft shadows.",
+      "eats from a small blue ceramic bowl, a hand sets down a white plate beside it, morning light across the kitchen, kettle steaming on the stove, cozy and calm."
+    ]
+  },
+  {
+    id: "shiba_rain",
+    name: "🌧️ 雨天散步的柴犬（5张 · 温馨水彩风）",
+    prefix: "Soft watercolor children's picture book illustration, hand-painted paper texture, warm pastel colors, gentle lighting, no text. A chubby Shiba Inu puppy wearing a yellow raincoat",
+    negative: "photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws",
+    seed: 108,
+    prompts: [
+      "sits by the glass front door looking out at gentle rain falling on a cobblestone street, curious tilted head, soft blue rainy light outside, warm cozy hallway inside.",
+      "steps outside onto the wet cobblestone sidewalk, looking up at falling raindrops with ears perked, reflections of warm streetlamps on the wet ground.",
+      "splashes joyfully into a shallow rain puddle, tiny water droplets flying in the air, happy wagging curled tail, blooming hydrangeas along a garden fence.",
+      "shakes water off its fur under a red striped awning outside a small bakery, warm golden light glowing through the bakery window.",
+      "trots happily back home along the wet path as the rain stops and a soft rainbow appears in the clearing pastel sky."
+    ]
+  },
+  {
+    id: "bunny_stars",
+    name: "🔭 屋顶看星星的小兔（5张 · 蜡笔童话风）",
+    prefix: "Crayon and colored pencil texture illustration, whimsical storybook art, soft organic lines, deep indigo and warm starlight palette, no text. A little white bunny with long floppy ears and a blue knitted sweater",
+    negative: "photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws",
+    seed: 2026,
+    prompts: [
+      "climbs up a wooden ladder onto a cozy attic rooftop at dusk, carrying a small brass telescope, first stars twinkling in the twilight sky.",
+      "sets up the brass telescope on the flat wooden roof beside a glowing warm lantern, looking excitedly up at a bright crescent moon.",
+      "peeks through the brass telescope with one eye closed, surrounded by a dreamy swirl of glowing constellations and floating stardust.",
+      "sits on a warm wool blanket on the roof sipping from a tiny red mug, watching a bright shooting star streak across the night sky.",
+      "falls asleep curled up beside the lantern and telescope under the starry sky, a soft crescent moon smiling down."
+    ]
+  },
+  {
+    id: "space_science",
+    name: "🚀 科普短片：火箭发射全过程（5张 · 扁平矢量科普风）",
+    prefix: "Modern flat vector editorial illustration, clean geometric shapes, rich deep navy and vibrant coral color palette, soft gradients, educational science art style, no text.",
+    negative: "photorealistic, 3d render, blurry, low quality, messy sketch, text, watermark, letters, numbers",
+    seed: 42,
+    prompts: [
+      "A tall white and orange space rocket standing on a launchpad at dawn, gantry towers beside it, venting white vapor clouds, distant mountains and glowing sunrise horizon.",
+      "Ignition moment at the launchpad, bright golden and coral exhaust flames roaring downward, massive billowing clouds of white smoke expanding around the base.",
+      "The rocket ascending steeply through blue sky into the upper atmosphere, leaving a long bright white contrail curve against the darkening blue stratosphere.",
+      "First stage booster separation in high orbit, glowing thrusters firing in the dark starry space, curved blue edge of Earth visible below.",
+      "A sleek satellite deploying golden solar panels in quiet deep orbit above the illuminated night-and-day terminator line of Earth."
+    ]
+  }
+];
+
+function initPresets() {
+  const chipBox = $('style-chips');
+  STYLE_CHIPS.forEach(item => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = item.label;
+    chip.title = item.prefix;
+    chip.onclick = () => {
+      $('prefix').value = item.prefix;
+    };
+    chipBox.appendChild(chip);
+  });
+
+  const select = $('story-preset');
+  STORY_PRESETS.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  });
+
+  function applySelectedPreset() {
+    const id = select.value;
+    const preset = STORY_PRESETS.find(p => p.id === id);
+    if (!preset) return;
+    $('prefix').value = preset.prefix;
+    $('prompts').value = preset.prompts.join('\n');
+    $('negative').value = preset.negative;
+    if (typeof preset.seed === 'number') {
+      $('seed').value = preset.seed;
+    }
+    updateLineCount();
+  }
+
+  select.addEventListener('change', applySelectedPreset);
+  $('apply-preset').addEventListener('click', applySelectedPreset);
+
+  select.value = STORY_PRESETS[0].id;
+  applySelectedPreset();
+}
+
+function randomSeed() {
+  return Math.floor(Math.random() * 2147483647) + 1;
+}
+
+function getSeedValue() {
+  const parsed = parseInt($('seed').value, 10);
+  return Number.isNaN(parsed) ? 42 : parsed;
+}
+
+function updateLineCount() {
+  const lines = $('prompts').value.split('\n').map(s => s.trim()).filter(Boolean);
+  $('line-count').textContent = lines.length + ' 张';
+}
+
+$('prompts').addEventListener('input', updateLineCount);
+$('rand-seed').addEventListener('click', () => {
+  $('seed').value = randomSeed();
+});
+
+async function refreshHealth() {
+  try {
+    const r = await fetch('/api/health');
+    const h = await r.json();
+    const wf = h.workflow_loaded
+      ? '<span class="ok">workflow 已加载</span>'
+      : '<span class="bad">缺少 workflow_api_sdxl.json</span>';
+    const cu = h.comfyui === 'ok'
+      ? '<span class="ok">ComfyUI 正常</span>'
+      : '<span class="bad">连不上 ComfyUI</span>';
+    $('health').innerHTML = wf + ' · ' + cu + (h.queued ? ' · 排队中 ' + h.queued + ' 个任务' : '');
+  } catch (e) {
+    $('health').innerHTML = '<span class="bad">连不上生图服务</span>';
+  }
+}
+
+function setProgress(text, done, total) {
+  $('progress-wrap').style.display = 'block';
+  $('status').textContent = text;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  $('status-pct').textContent = pct + '%';
+  $('progress-bar').style.width = pct + '%';
+}
+
+async function poll(jobId, onComplete) {
+  try {
+    const r = await fetch('/api/status/' + jobId);
+    const j = await r.json();
+    if (j.status === 'done') {
+      clearInterval(timer);
+      setProgress('全部完成 ' + j.done + '/' + j.total, j.done, j.total);
+      $('run').disabled = false;
+      onComplete(j);
+    } else if (j.status === 'failed') {
+      clearInterval(timer);
+      setProgress('失败：' + (j.error || '未知错误'), j.done, j.total);
+      $('run').disabled = false;
+    } else {
+      const stateText = j.status === 'queued'
+        ? '排队等待中……'
+        : '正在生成第 ' + Math.min(j.done + 1, j.total) + ' / ' + j.total + ' 张（单张约 25~30 秒）';
+      setProgress(stateText, j.done, j.total);
+      if (j.items && j.items.length) {
+        onComplete(j, true);
+      }
+    }
+  } catch (e) {
+    clearInterval(timer);
+    setProgress('查状态失败：' + e, 0, 1);
+    $('run').disabled = false;
+  }
+}
+
+function renderCards() {
+  const box = $('results');
+  box.innerHTML = '';
+  currentCards.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'card' + (item.rerolling ? ' rerolling' : '');
+
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'card-img-wrap';
+    const img = document.createElement('img');
+    img.src = '/results/' + encodeURIComponent(item.filename);
+    img.alt = item.filename;
+    img.title = '点击查看大图';
+    img.onclick = () => {
+      $('lightbox-img').src = img.src;
+      $('lightbox').style.display = 'flex';
+    };
+    imgWrap.appendChild(img);
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+
+    const promptEl = document.createElement('div');
+    promptEl.className = 'card-prompt';
+    promptEl.title = item.prompt;
+    promptEl.textContent = '#' + (idx + 1) + ' ' + item.prompt;
+
+    const footer = document.createElement('div');
+    footer.className = 'card-footer';
+
+    const left = document.createElement('span');
+    const a = document.createElement('a');
+    a.href = '/results/' + encodeURIComponent(item.filename);
+    a.download = item.filename;
+    a.textContent = '下载';
+    left.appendChild(a);
+    left.appendChild(document.createTextNode(' · seed:' + item.seed));
+
+    const rerollBtn = document.createElement('button');
+    rerollBtn.type = 'button';
+    rerollBtn.className = 'btn-reroll';
+    rerollBtn.textContent = '🔄 换种子重抽';
+    rerollBtn.disabled = Boolean(item.rerolling) || $('run').disabled;
+    rerollBtn.onclick = () => rerollSingle(idx);
+
+    footer.appendChild(left);
+    footer.appendChild(rerollBtn);
+
+    body.appendChild(promptEl);
+    body.appendChild(footer);
+    card.appendChild(imgWrap);
+    card.appendChild(body);
+    box.appendChild(card);
+  });
+}
+
+async function rerollSingle(idx) {
+  const target = currentCards[idx];
+  if (!target || target.rerolling) return;
+  const newSeed = (typeof target.seed === 'number' ? target.seed : 42) + 1;
+  target.rerolling = true;
+  renderCards();
+
+  try {
+    const r = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompts: [target.prompt],
+        prefix: '',
+        negative_prompt: $('negative').value,
+        seed: newSeed,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.status);
+
+    const singleTimer = setInterval(async () => {
+      try {
+        const sr = await fetch('/api/status/' + data.job_id);
+        const sj = await sr.json();
+        if (sj.status === 'done' && sj.items && sj.items.length) {
+          clearInterval(singleTimer);
+          currentCards[idx] = { ...sj.items[0], rerolling: false };
+          renderCards();
+        } else if (sj.status === 'failed') {
+          clearInterval(singleTimer);
+          alert('重抽失败：' + (sj.error || '未知错误'));
+          target.rerolling = false;
+          renderCards();
+        }
+      } catch (err) {
+        clearInterval(singleTimer);
+        target.rerolling = false;
+        renderCards();
+      }
+    }, 2000);
+  } catch (e) {
+    alert('重抽提交失败：' + e.message);
+    target.rerolling = false;
+    renderCards();
+  }
+}
+
+$('run').addEventListener('click', async () => {
+  const prompts = $('prompts').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!prompts.length) {
+    setProgress('请先填写至少一行提示词。', 0, 1);
+    return;
+  }
+  if ($('auto-rand').checked) {
+    $('seed').value = randomSeed();
+  }
+  const seed = getSeedValue();
+  const prefix = $('prefix').value.trim();
+
+  $('run').disabled = true;
+  currentCards = [];
+  renderCards();
+  setProgress('任务提交中……', 0, prompts.length);
+
+  try {
+    const r = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompts,
+        prefix,
+        negative_prompt: $('negative').value,
+        seed,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      setProgress('提交失败：' + (data.error || r.status), 0, 1);
+      $('run').disabled = false;
+      return;
+    }
+    clearInterval(timer);
+    timer = setInterval(() => {
+      poll(data.job_id, (jobData) => {
+        currentCards = (jobData.items || []).map(it => ({ ...it, rerolling: false }));
+        renderCards();
+      });
+    }, 2000);
+    poll(data.job_id, (jobData) => {
+      currentCards = (jobData.items || []).map(it => ({ ...it, rerolling: false }));
+      renderCards();
+    });
+  } catch (e) {
+    setProgress('提交失败：' + e, 0, 1);
+    $('run').disabled = false;
+  }
+});
+
+initPresets();
+refreshHealth();
+setInterval(refreshHealth, 10000);
+</script>
+</body>
+</html>
