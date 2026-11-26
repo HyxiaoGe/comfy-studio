@@ -66,7 +66,9 @@ def pick_prompt_nodes(workflow, pinned_pos=None, pinned_neg=None):
     return pos, neg
 
 
-def build_image_workflow(template, image, pos_id, neg_id, seed, negative_prompt):
+def build_image_workflow(
+    template, image, pos_id, neg_id, seed, negative_prompt, width=None, height=None
+):
     wf = copy.deepcopy(template)
     node = wf[pos_id]
     node["inputs"][text_key(node) or "text"] = image["prompt"]
@@ -83,6 +85,15 @@ def build_image_workflow(template, image, pos_id, neg_id, seed, negative_prompt)
             inputs["noise_seed"] = seed
         if isinstance(inputs.get("filename_prefix"), str):
             inputs["filename_prefix"] = image["id"]
+        if (
+            width
+            and height
+            and "Latent" in (n.get("class_type") or "")
+            and isinstance(inputs.get("width"), int)
+            and isinstance(inputs.get("height"), int)
+        ):
+            inputs["width"] = int(width)
+            inputs["height"] = int(height)
     return wf
 
 

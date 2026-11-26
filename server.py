@@ -27,6 +27,16 @@ from core.comfy_client import (  # noqa: E402
     queue_prompt,
     wait_history,
 )
+from core.ffmpeg_composer import (  # noqa: E402
+    DEFAULT_DURATION,
+    DEFAULT_FPS,
+    DEFAULT_TRANSITION,
+    SUPPORTED_MOTIONS,
+    compose_storyboard_video,
+    detect_nvenc,
+    ensure_even,
+    has_ffmpeg,
+)
 from core.image_runner import (  # noqa: E402
     DEFAULT_SEED,
     DEFAULT_TIMEOUT,
@@ -38,11 +48,37 @@ COMFYUI = DEFAULT_SERVER
 WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
+COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
 CLIENT_ID = str(uuid.uuid4())
+
+DEFAULT_WIDTH = 1344
+DEFAULT_HEIGHT = 768
 
 jobs = {}
 jobs_lock = threading.Lock()
 job_queue = queue.Queue()
+
+compose_jobs = {}
+compose_lock = threading.Lock()
+compose_queue = queue.Queue()
+
+
+def _safe_filename(name):
+    return (
+        isinstance(name, str)
+        and bool(name)
+        and "/" not in name
+        and "\\" not in name
+        and ".." not in name
+    )
+
+
+def _normalize_size(width, height):
+    if isinstance(width, int) and not isinstance(width, bool) and isinstance(height, int) and not isinstance(height, bool):
+        w = max(512, min(2048, width))
+        h = max(512, min(2048, height))
+        return w - (w % 8), h - (h % 8)
+    return DEFAULT_WIDTH, DEFAULT_HEIGHT
 
 
 def public_job(job):
@@ -52,10 +88,29 @@ def public_job(job):
         "done": job["done"],
         "total": job["total"],
         "current_index": job["current_index"],
+        "width": job["width"],
+        "height": job["height"],
         "results": list(job["results"]),
         "items": list(job["items"]),
         "out_dir": os.path.abspath(OUT_DIR),
         "error": job["error"],
+    }
+
+
+def public_compose_job(cjob):
+    return {
+        "id": cjob["id"],
+        "status": cjob["status"],
+        "done": cjob["done"],
+        "total": cjob["total"],
+        "stage": cjob["stage"],
+        "filename": cjob["filename"],
+        "video_url": f"/composed/{cjob['filename']}" if cjob["filename"] else "",
+        "encoder": cjob["encoder"],
+        "width": cjob["width"],
+        "height": cjob["height"],
+        "duration": cjob["duration"],
+        "error": cjob["error"],
     }
 
 
@@ -70,14 +125,17 @@ def merge_prompt(prefix, prompt):
     return p + sep + s
 
 
-def new_job(prompts, negative_prompt, seed, prefix=""):
+def new_job(prompts, negative_prompt, seed, prefix="", width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
     job_id = uuid.uuid4().hex[:12]
     full_prompts = [merge_prompt(prefix, p) for p in prompts]
+    w, h = _normalize_size(width, height)
     job = {
         "id": job_id,
         "prompts": full_prompts,
         "negative_prompt": negative_prompt,
         "seed": seed,
+        "width": w,
+        "height": h,
         "status": "queued",
         "done": 0,
         "total": len(full_prompts),
@@ -90,6 +148,30 @@ def new_job(prompts, negative_prompt, seed, prefix=""):
         jobs[job_id] = job
     job_queue.put(job_id)
     return job
+
+
+def new_compose_job(shots, width, height, fps, transition):
+    cid = uuid.uuid4().hex[:12]
+    cjob = {
+        "id": cid,
+        "shots": shots,
+        "width": ensure_even(width, DEFAULT_WIDTH),
+        "height": ensure_even(height, DEFAULT_HEIGHT),
+        "fps": fps,
+        "transition": transition,
+        "status": "queued",
+        "done": 0,
+        "total": len(shots) + 1,
+        "stage": "排队等待合成…",
+        "filename": "",
+        "encoder": "",
+        "duration": 0.0,
+        "error": "",
+    }
+    with compose_lock:
+        compose_jobs[cid] = cjob
+    compose_queue.put(cid)
+    return cjob
 
 
 def run_job(job_id):
@@ -105,7 +187,14 @@ def run_job(job_id):
         image_id = "%s_%02d" % (job_id, i + 1)
         image = {"id": image_id, "prompt": prompt}
         wf = build_image_workflow(
-            template, image, pos_id, neg_id, job["seed"], job["negative_prompt"]
+            template,
+            image,
+            pos_id,
+            neg_id,
+            job["seed"],
+            job["negative_prompt"],
+            width=job["width"],
+            height=job["height"],
         )
         prompt_id = queue_prompt(COMFYUI, wf, CLIENT_ID)
         entry = wait_history(COMFYUI, prompt_id, DEFAULT_TIMEOUT)
@@ -121,10 +210,46 @@ def run_job(job_id):
                     "path": os.path.abspath(p),
                     "prompt": prompt,
                     "seed": job["seed"],
+                    "width": job["width"],
+                    "height": job["height"],
                 })
             job["done"] = i + 1
     with jobs_lock:
         job["status"] = "done"
+
+
+def run_compose_job(cid):
+    with compose_lock:
+        cjob = compose_jobs[cid]
+        cjob["status"] = "running"
+        cjob["stage"] = "准备合成运镜成片…"
+
+    os.makedirs(COMPOSED_DIR, exist_ok=True)
+    out_name = f"story_{cid}.mp4"
+    out_path = os.path.join(COMPOSED_DIR, out_name)
+
+    def on_progress(done, total, stage):
+        with compose_lock:
+            cjob["done"] = done
+            cjob["total"] = total
+            cjob["stage"] = stage
+
+    result = compose_storyboard_video(
+        cjob["shots"],
+        out_path,
+        width=cjob["width"],
+        height=cjob["height"],
+        fps=cjob["fps"],
+        transition=cjob["transition"],
+        progress_cb=on_progress,
+    )
+    with compose_lock:
+        cjob["status"] = "done"
+        cjob["done"] = cjob["total"]
+        cjob["filename"] = out_name
+        cjob["encoder"] = result["encoder"]
+        cjob["duration"] = result["duration"]
+        cjob["stage"] = "成片导出完成"
 
 
 def worker():
@@ -142,12 +267,43 @@ def worker():
             job_queue.task_done()
 
 
+def compose_worker():
+    while True:
+        cid = compose_queue.get()
+        try:
+            run_compose_job(cid)
+        except Exception as e:  # noqa: BLE001
+            with compose_lock:
+                cjob = compose_jobs.get(cid)
+                if cjob is not None:
+                    cjob["status"] = "failed"
+                    cjob["error"] = str(e)
+                    cjob["stage"] = "合成失败"
+        finally:
+            compose_queue.task_done()
+
+
 def health():
+    active_job = None
+    with jobs_lock:
+        for job in reversed(list(jobs.values())):
+            if job["status"] == "running":
+                active_job = {
+                    "id": job["id"],
+                    "status": job["status"],
+                    "done": job["done"],
+                    "total": job["total"],
+                    "current_index": job["current_index"],
+                }
+                break
     return {
         "workflow_loaded": os.path.exists(WORKFLOW_PATH),
         "comfyui": "ok" if check_comfyui_health(COMFYUI) else "unreachable",
+        "ffmpeg": has_ffmpeg(),
+        "nvenc": detect_nvenc(),
         "queued": job_queue.qsize(),
         "jobs": len(jobs),
+        "active_job": active_job,
     }
 
 
@@ -165,51 +321,117 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _file(self, path, ctype):
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length") or 0)
         try:
-            with open(path, "rb") as f:
-                body = f.read()
-        except FileNotFoundError:
+            raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+            return json.loads(raw or "{}"), None
+        except Exception:  # noqa: BLE001
+            return None, "JSON 解析失败"
+
+    def _file(self, path, ctype, support_range=False):
+        try:
+            file_size = os.path.getsize(path)
+        except OSError:
             self._json({"error": "找不到文件"}, 404)
             return
+
+        range_hdr = self.headers.get("Range") if support_range else None
+        if range_hdr and range_hdr.startswith("bytes="):
+            spec = range_hdr[len("bytes="):].split(",")[0].strip()
+            parts = spec.split("-", 1)
+            try:
+                start = int(parts[0]) if parts[0] else 0
+                end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+            except ValueError:
+                self.send_error(416)
+                return
+            end = min(end, file_size - 1)
+            if start < 0 or start > end or start >= file_size:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{file_size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            length = end - start + 1
+            with open(path, "rb") as f:
+                f.seek(start)
+                chunk = f.read(length)
+            self.send_response(206)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+            self.send_header("Content-Length", str(len(chunk)))
+            self.end_headers()
+            self.wfile.write(chunk)
+            return
+
+        with open(path, "rb") as f:
+            body = f.read()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
+        if support_range:
+            self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):  # noqa: N802
-        if self.path in ("/", "/index.html"):
+        path = self.path.split("?", 1)[0]
+        if path in ("/", "/index.html"):
             self._file(WEB_INDEX_PATH, "text/html; charset=utf-8")
-        elif self.path == "/api/health":
+        elif path == "/api/health":
             self._json(health())
-        elif self.path.startswith("/api/status/"):
-            job_id = self.path[len("/api/status/"):]
+        elif path.startswith("/api/status/"):
+            job_id = path[len("/api/status/"):]
             with jobs_lock:
                 job = jobs.get(job_id)
             if job is None:
                 self._json({"error": "没有这个任务"}, 404)
             else:
                 self._json(public_job(job))
-        elif self.path.startswith("/results/"):
-            name = self.path[len("/results/"):]
-            if "/" in name or "\\" in name or ".." in name:
+        elif path.startswith("/api/compose/"):
+            cid = path[len("/api/compose/"):]
+            with compose_lock:
+                cjob = compose_jobs.get(cid)
+            if cjob is None:
+                self._json({"error": "没有这个合成任务"}, 404)
+            else:
+                self._json(public_compose_job(cjob))
+        elif path.startswith("/results/"):
+            name = path[len("/results/"):]
+            if not _safe_filename(name):
                 self._json({"error": "文件名不对"}, 400)
                 return
             ctype, _enc = mimetypes.guess_type(name)
             self._file(os.path.join(OUT_DIR, name), ctype or "application/octet-stream")
+        elif path.startswith("/composed/"):
+            name = path[len("/composed/"):]
+            if not _safe_filename(name):
+                self._json({"error": "文件名不对"}, 400)
+                return
+            ctype, _enc = mimetypes.guess_type(name)
+            self._file(
+                os.path.join(COMPOSED_DIR, name),
+                ctype or "video/mp4",
+                support_range=True,
+            )
         else:
             self._json({"error": "没有这个地址"}, 404)
 
     def do_POST(self):  # noqa: N802
-        if self.path != "/api/generate":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/generate":
+            self._handle_generate()
+        elif path == "/api/compose":
+            self._handle_compose()
+        else:
             self._json({"error": "没有这个地址"}, 404)
-            return
-        length = int(self.headers.get("Content-Length") or 0)
-        try:
-            data = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-        except Exception:  # noqa: BLE001
-            self._json({"error": "JSON 解析失败"}, 400)
+
+    def _handle_generate(self):
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
             return
         prompts = [
             p.strip()
@@ -226,12 +448,75 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(seed, int) or isinstance(seed, bool):
             seed = DEFAULT_SEED
         prefix = data.get("prefix") if isinstance(data.get("prefix"), str) else ""
-        job = new_job(prompts, data.get("negative_prompt") or "", seed, prefix=prefix)
+        width = data.get("width")
+        height = data.get("height")
+        job = new_job(
+            prompts,
+            data.get("negative_prompt") or "",
+            seed,
+            prefix=prefix,
+            width=width,
+            height=height,
+        )
         self._json({"job_id": job["id"]}, 202)
+
+    def _handle_compose(self):
+        if not has_ffmpeg():
+            self._json({"error": "服务端未检测到 ffmpeg，无法合成视频"}, 500)
+            return
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        raw_shots = data.get("shots")
+        if not isinstance(raw_shots, list) or not raw_shots:
+            self._json({"error": "shots 不能为空，请先生成分镜图片"}, 400)
+            return
+        if len(raw_shots) > 30:
+            self._json({"error": "单次合成最多 30 个分镜"}, 400)
+            return
+
+        shots = []
+        for idx, item in enumerate(raw_shots):
+            if not isinstance(item, dict):
+                self._json({"error": f"第 {idx + 1} 个分镜参数格式不对"}, 400)
+                return
+            fname = item.get("filename")
+            if not _safe_filename(fname):
+                self._json({"error": f"第 {idx + 1} 个分镜文件名不合法"}, 400)
+                return
+            img_path = os.path.join(OUT_DIR, fname)
+            if not os.path.exists(img_path):
+                self._json({"error": f"找不到分镜图片：{fname}"}, 404)
+                return
+            motion = (item.get("motion") or "zoom_in").strip().lower()
+            if motion not in SUPPORTED_MOTIONS:
+                motion = "zoom_in"
+            try:
+                dur = float(item.get("duration") or DEFAULT_DURATION)
+            except (TypeError, ValueError):
+                dur = DEFAULT_DURATION
+            dur = max(1.0, min(15.0, dur))
+            shots.append({"path": img_path, "motion": motion, "duration": dur})
+
+        width, height = _normalize_size(data.get("width"), data.get("height"))
+        try:
+            fps = int(data.get("fps") or DEFAULT_FPS)
+        except (TypeError, ValueError):
+            fps = DEFAULT_FPS
+        try:
+            transition = float(
+                DEFAULT_TRANSITION if data.get("transition") is None else data.get("transition")
+            )
+        except (TypeError, ValueError):
+            transition = DEFAULT_TRANSITION
+
+        cjob = new_compose_job(shots, width, height, fps, transition)
+        self._json({"compose_id": cjob["id"]}, 202)
 
 
 def main(argv=None):
-    global COMFYUI, WORKFLOW_PATH, OUT_DIR  # noqa: PLW0603
+    global COMFYUI, WORKFLOW_PATH, OUT_DIR, COMPOSED_DIR  # noqa: PLW0603
     ap = argparse.ArgumentParser(description="Comfy Studio 本地生图工作台")
     ap.add_argument("--host", default="0.0.0.0", help="监听地址（默认 0.0.0.0）")
     ap.add_argument("--port", type=int, default=8899, help="端口（默认 8899）")
@@ -243,9 +528,12 @@ def main(argv=None):
     COMFYUI = args.comfyui
     WORKFLOW_PATH = args.workflow or os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
     OUT_DIR = args.out_dir or os.path.join(BASE_DIR, "outputs", "images")
+    COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
     os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(COMPOSED_DIR, exist_ok=True)
 
     threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=compose_worker, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print("Comfy Studio 工作台运行在 http://%s:%d" % (args.host, args.port))
     print("本机访问：http://127.0.0.1:%d | ComfyUI：%s" % (args.port, COMFYUI))

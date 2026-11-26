@@ -3,272 +3,677 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Comfy Studio · 创作工作台</title>
+<title>Comfy Studio · 暗色分镜工作台</title>
 <style>
   :root {
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
-    --bg: #f8fafc;
-    --card: #ffffff;
-    --border: #cbd5e1;
-    --text: #1e293b;
-    --muted: #64748b;
+    --bg: #0b0f17;
+    --bg-elevated: #111827;
+    --panel: #151e2e;
+    --panel-hover: #1b263b;
+    --surface: #0f1623;
+    --border: #263248;
+    --border-strong: #374763;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-muted: #64748b;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --primary-soft: rgba(59, 130, 246, 0.16);
+    --accent: #06b6d4;
+    --success: #22c55e;
+    --success-soft: rgba(34, 197, 94, 0.14);
+    --warn: #f59e0b;
+    --warn-soft: rgba(245, 158, 11, 0.15);
+    --danger: #ef4444;
+    --danger-soft: rgba(239, 68, 68, 0.15);
+    --radius: 10px;
+    --radius-sm: 7px;
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   }
+
+  * { box-sizing: border-box; }
+
   body {
-    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    max-width: 860px;
-    margin: 28px auto;
-    padding: 0 16px 48px;
-    color: var(--text);
+    margin: 0;
+    min-height: 100vh;
     background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
-  .header {
+
+  /* 顶部工具栏 */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(11, 15, 23, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+  }
+  .topbar-inner {
+    max-width: 1480px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #2563eb, #06b6d4);
+    display: grid;
+    place-items: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  .brand-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: block;
+    line-height: 1.2;
+  }
+
+  /* 模式切换分段控件 */
+  .mode-switch {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 4px;
+  }
+  .mode-btn {
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mode-btn:hover { color: var(--text); }
+  .mode-btn.active {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+  }
+
+  /* 顶部状态与显卡队列条 */
+  .topbar-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .dot.ok { background: var(--success); box-shadow: 0 0 8px rgba(34, 197, 94, 0.6); }
+  .dot.bad { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+  .dot.busy { background: var(--warn); box-shadow: 0 0 8px rgba(245, 158, 11, 0.6); }
+
+  .gpu-queue-box {
+    min-width: 210px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 10px;
+  }
+  .gpu-queue-head {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    gap: 10px;
   }
-  h1 { font-size: 22px; margin: 0; }
-  #health { font-size: 13px; color: var(--muted); }
-  #health .ok { color: #16a34a; font-weight: 500; }
-  #health .bad { color: #dc2626; font-weight: 500; }
+  .mini-track {
+    height: 5px;
+    background: var(--surface);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .mini-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--primary), var(--accent));
+    transition: width 0.25s ease;
+  }
+
+  /* 主布局：左侧 DNA 面板 + 右侧分镜列表 */
+  .workspace {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 18px 20px 48px;
+    display: grid;
+    grid-template-columns: 370px minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 980px) {
+    .workspace { grid-template-columns: 1fr; }
+  }
 
   .panel {
-    background: var(--card);
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 18px 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
   }
-  label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 14px; }
-  label:first-child { margin-top: 0; }
-  .hint { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .dna-panel {
+    position: sticky;
+    top: 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  @media (max-width: 980px) {
+    .dna-panel { position: static; }
+  }
+
+  .panel-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .field-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .hint {
+    font-weight: 400;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
 
   textarea, input[type="text"], input[type="number"], select {
     width: 100%;
-    box-sizing: border-box;
-    padding: 9px 11px;
-    font-size: 14px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
+    border-radius: var(--radius-sm);
     font-family: inherit;
-    line-height: 1.5;
+    line-height: 1.45;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   textarea:focus, input:focus, select:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
   }
-
-  .preset-bar {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    background: #f1f5f9;
-    padding: 10px 12px;
-    border-radius: 8px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-  }
-  .preset-bar-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #334155;
-    white-space: nowrap;
-  }
-  .preset-bar select {
-    flex: 1;
-    min-width: 220px;
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-
-  .chip-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-  }
-  .chip {
-    font-size: 12px;
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-    cursor: pointer;
-    user-select: none;
-    transition: all 0.15s;
-  }
-  .chip:hover {
-    background: #dbeafe;
-  }
+  textarea { resize: vertical; }
 
   .row-inline {
     display: flex;
     gap: 8px;
     align-items: center;
   }
-  .row-inline input { flex: 1; }
+  .row-inline > input, .row-inline > select { flex: 1; min-width: 0; }
 
-  button {
-    padding: 9px 18px;
-    font-size: 14px;
-    font-weight: 500;
-    border: 0;
-    border-radius: 6px;
-    background: var(--primary);
-    color: #fff;
-    cursor: pointer;
-    transition: background 0.15s;
+  /* 胶囊区 */
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
   }
-  button:hover:not(:disabled) { background: var(--primary-hover); }
-  button:disabled { background: #94a3b8; cursor: not-allowed; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: var(--primary-soft);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+  }
+  .chip:hover {
+    background: rgba(59, 130, 246, 0.28);
+    color: #fff;
+  }
+  .chip.custom {
+    background: rgba(6, 182, 212, 0.14);
+    color: #67e8f9;
+    border-color: rgba(6, 182, 212, 0.35);
+  }
+  .chip-del {
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.75;
+    padding: 0 2px;
+  }
+  .chip-del:hover { opacity: 1; color: #fca5a5; }
 
-  button.btn-secondary {
-    background: #f1f5f9;
-    color: #334155;
-    border: 1px solid var(--border);
-    padding: 8px 14px;
+  .save-chip-row {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .save-chip-row input {
+    flex: 1;
+    min-width: 0;
+  }
+  .save-chip-row button {
+    flex-shrink: 0;
     white-space: nowrap;
   }
-  button.btn-secondary:hover:not(:disabled) { background: #e2e8f0; }
 
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-top: 18px;
-    flex-wrap: wrap;
+  /* 可折叠负提示词 */
+  details.collapse-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
   }
+  details.collapse-box summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    user-select: none;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  details.collapse-box summary::-webkit-details-marker { display: none; }
+  details.collapse-box summary::after {
+    content: "展开 ▾";
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  details.collapse-box[open] summary::after { content: "收起 ▴"; }
+  details.collapse-box textarea {
+    margin-top: 8px;
+    background: var(--bg-elevated);
+  }
+
   .checkbox-label {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text-dim);
     cursor: pointer;
     user-select: none;
+    margin-top: 6px;
   }
+  .checkbox-label input { width: auto; accent-color: var(--primary); }
 
-  /* 进度条区域 */
-  #progress-wrap {
-    display: none;
-    margin-top: 18px;
-    background: var(--card);
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 12px 16px;
-  }
-  .progress-head {
-    display: flex;
-    justify-content: space-between;
+  /* 按钮体系 */
+  button {
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
     font-size: 13px;
-    margin-bottom: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
   }
-  .progress-bar-bg {
-    width: 100%;
-    height: 8px;
-    background: #e2e8f0;
-    border-radius: 999px;
-    overflow: hidden;
-  }
-  #progress-bar {
-    height: 100%;
-    width: 0%;
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary {
     background: var(--primary);
-    transition: width 0.3s ease;
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+  .btn-accent {
+    background: linear-gradient(135deg, #0284c7, #0d9488);
+    color: #fff;
+  }
+  .btn-accent:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--panel-hover);
+    border-color: var(--border-strong);
+  }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-icon {
+    padding: 4px 8px;
+    font-size: 12px;
+    background: var(--surface);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .btn-icon:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+  .btn-danger-ghost:hover:not(:disabled) {
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.5);
+    background: var(--danger-soft);
   }
 
-  /* 结果网格 */
-  #results {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 16px;
-    margin-top: 20px;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    overflow: hidden;
+  .dna-actions {
     display: flex;
     flex-direction: column;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    gap: 9px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
   }
-  .card-img-wrap {
+  .dna-actions button { width: 100%; padding: 10px 14px; font-size: 14px; }
+
+  /* 右侧分镜区 */
+  .storyboard-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .m2-banner {
+    display: none;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #fcd34d;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .m2-banner.show { display: flex; }
+
+  .toolbar-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+  }
+  .toolbar-stats {
+    font-size: 13px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .toolbar-stats strong { color: var(--text); }
+
+  /* 合成成片播放器面板 */
+  .compose-panel {
+    display: none;
+    background: var(--panel);
+    border: 1px solid rgba(6, 182, 212, 0.45);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .compose-panel.show { display: block; }
+  .compose-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .compose-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .compose-track {
+    height: 7px;
+    background: var(--surface);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .compose-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #06b6d4, #22c55e);
+    transition: width 0.25s ease;
+  }
+  .compose-video-wrap {
+    display: none;
+    margin-top: 10px;
+  }
+  .compose-video-wrap.show { display: block; }
+  .compose-video-wrap video {
+    width: 100%;
+    max-height: 460px;
+    border-radius: 8px;
+    background: #000;
+    border: 1px solid var(--border);
+  }
+
+  /* 分镜卡片列表 */
+  .shot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .shot-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 16px;
+    transition: border-color 0.15s;
+  }
+  .shot-card:hover { border-color: var(--border-strong); }
+  @media (max-width: 680px) {
+    .shot-card { grid-template-columns: 1fr; }
+  }
+
+  .shot-media {
     position: relative;
-    background: #f1f5f9;
-    aspect-ratio: 1 / 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  .card img {
+  .shot-media img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
     cursor: zoom-in;
   }
-  .card.rerolling .card-img-wrap::after {
-    content: "重绘中...";
+  .shot-placeholder {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 16px;
+  }
+  .shot-placeholder .ph-icon { font-size: 24px; display: block; margin-bottom: 4px; opacity: 0.7; }
+  .shot-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(15, 23, 42, 0.55);
-    color: #fff;
-    display: flex;
+    background: rgba(11, 15, 23, 0.72);
+    display: none;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
+    color: #fff;
   }
-  .card-body {
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex: 1;
-  }
-  .card-prompt {
-    font-size: 12px;
-    color: #475569;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    line-height: 1.4;
-  }
-  .card-footer {
-    margin-top: auto;
+  .shot-media.busy .shot-overlay { display: flex; }
+
+  .shot-meta-bar {
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: 6px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 12px;
-    color: var(--muted);
-    border-top: 1px solid #f1f5f9;
-    padding-top: 8px;
+    pointer-events: none;
   }
-  .card-footer a {
-    color: var(--primary);
+  .shot-seed-tag {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: rgba(11, 15, 23, 0.78);
+    color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    pointer-events: auto;
+  }
+  .shot-dl-link {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 5px;
+    background: rgba(11, 15, 23, 0.78);
+    color: #93c5fd;
     text-decoration: none;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    pointer-events: auto;
   }
-  .card-footer a:hover { text-decoration: underline; }
-  .btn-reroll {
-    padding: 4px 9px;
-    font-size: 12px;
-    background: #f1f5f9;
-    color: #334155;
-    border: 1px solid #cbd5e1;
-  }
-  .btn-reroll:hover:not(:disabled) { background: #e2e8f0; }
+  .shot-dl-link:hover { background: var(--primary); color: #fff; }
 
-  /* 预览大图弹窗 */
+  .shot-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+  .shot-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .shot-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .shot-num {
+    font-size: 12px;
+    font-weight: 700;
+    color: #93c5fd;
+    background: var(--primary-soft);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .badge-idle { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+  .badge-queued { background: var(--warn-soft); color: #fcd34d; }
+  .badge-running { background: var(--primary-soft); color: #93c5fd; }
+  .badge-ready { background: var(--success-soft); color: #86efac; }
+  .badge-error { background: var(--danger-soft); color: #fca5a5; }
+
+  .shot-order-btns {
+    display: flex;
+    gap: 5px;
+  }
+  .shot-prompt {
+    min-height: 74px;
+    font-size: 13px;
+  }
+  .shot-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: auto;
+  }
+  .shot-motion-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .shot-motion-group label {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .shot-motion-group select {
+    width: auto;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .shot-error-msg {
+    font-size: 12px;
+    color: #fca5a5;
+  }
+
+  /* Lightbox */
   #lightbox {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.82);
+    background: rgba(5, 8, 14, 0.88);
     z-index: 999;
     align-items: center;
     justify-content: center;
@@ -276,76 +681,171 @@
     cursor: zoom-out;
   }
   #lightbox img {
-    max-width: 95vw;
+    max-width: 94vw;
     max-height: 92vh;
-    border-radius: 6px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65);
+    border: 1px solid var(--border);
   }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Comfy Studio</h1>
-  <div id="health">正在检查服务状态……</div>
-</div>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-logo">CS</div>
+      <div>
+        <h1>Comfy Studio</h1>
+        <span class="brand-sub">RTX 3060 12GB 串行分镜与运镜工坊</span>
+      </div>
+    </div>
 
-<div class="panel">
-  <!-- 整套分镜故事模板选择 -->
-  <div class="preset-bar">
-    <span class="preset-bar-title">📚 整套故事模板：</span>
-    <select id="story-preset">
-      <option value="">-- 选择预设故事（一键填充前缀、分镜与负提示词） --</option>
-    </select>
-    <button type="button" id="apply-preset" class="btn-secondary">填充模板</button>
+    <div class="mode-switch" role="tablist" aria-label="工作模式切换">
+      <button type="button" class="mode-btn active" data-mode="storyboard">🖼️ 图文分镜模式</button>
+      <button type="button" class="mode-btn" data-mode="video">🎬 音画短片模式</button>
+    </div>
+
+    <div class="topbar-status">
+      <div class="status-pill" id="health-pill">
+        <span class="dot" id="health-dot"></span>
+        <span id="health-text">正在检测服务…</span>
+      </div>
+      <div class="gpu-queue-box">
+        <div class="gpu-queue-head">
+          <span id="gpu-queue-text">显卡队列：空闲</span>
+          <span id="gpu-queue-pct">0%</span>
+        </div>
+        <div class="mini-track"><div class="mini-fill" id="gpu-queue-fill"></div></div>
+      </div>
+    </div>
   </div>
+</header>
 
-  <label for="prefix">公共风格 / 角色前缀 <span class="hint">自动拼接到下方每行提示词前，锁死画风与主角</span></label>
-  <input id="prefix" type="text" placeholder="选择下方快捷画风标签，或直接输入公共风格+角色描述">
-  <div class="chip-row" id="style-chips"></div>
+<main class="workspace">
+  <!-- 左侧：全局 DNA 面板 -->
+  <aside class="panel dna-panel">
+    <h2 class="panel-title">
+      <span>🧬 全局 DNA 控制</span>
+      <span class="hint">锁死画风与主角</span>
+    </h2>
 
-  <label for="prompts">分镜提示词（一行一张图） <span class="hint" id="line-count">0 张</span></label>
-  <textarea id="prompts" rows="7" placeholder="每行一段场景/动作描述，每行出一张图"></textarea>
+    <div>
+      <div class="field-label">
+        <span>📚 整套故事模板</span>
+        <span class="hint">一键加载分镜列表</span>
+      </div>
+      <div class="row-inline">
+        <select id="story-preset">
+          <option value="">-- 选择预设故事 --</option>
+        </select>
+        <button type="button" id="apply-preset" class="btn-secondary btn-sm">重填</button>
+      </div>
+    </div>
 
-  <label for="negative">负提示词</label>
-  <input id="negative" type="text" value="photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws">
+    <div>
+      <div class="field-label">
+        <span>🎨 公共画风 / 主角前缀</span>
+        <span class="hint">自动拼接到每镜前</span>
+      </div>
+      <textarea id="prefix" rows="3" placeholder="选择下方风格胶囊，或输入公共画风 + 主角描述"></textarea>
+      <div class="chip-row" id="style-chips"></div>
+      <div class="save-chip-row">
+        <input id="custom-chip-name" type="text" placeholder="自定义胶囊名称（如：赛博橘猫）">
+        <button type="button" id="save-chip-btn" class="btn-secondary btn-sm">💾 保存</button>
+      </div>
+    </div>
 
-  <label for="seed">种子（Seed） <span class="hint">全组同一颗，保风格连贯</span></label>
-  <div class="row-inline">
-    <input id="seed" type="number" value="42">
-    <button type="button" id="rand-seed" class="btn-secondary">🎲 随机</button>
-  </div>
+    <div>
+      <div class="field-label">
+        <span>📐 全局画幅</span>
+        <span class="hint">同步用于生图与合成视频</span>
+      </div>
+      <select id="aspect-ratio">
+        <option value="1344x768" selected>16:9 横屏短视频 (1344×768)</option>
+        <option value="768x1344">9:16 竖屏短视频 (768×1344)</option>
+        <option value="1024x1024">1:1 方形图文 (1024×1024)</option>
+        <option value="1152x896">4:3 经典横版 (1152×896)</option>
+        <option value="896x1152">3:4 经典竖版 (896×1152)</option>
+      </select>
+    </div>
 
-  <div class="actions">
-    <button id="run">开始批量生成</button>
-    <label class="checkbox-label">
-      <input type="checkbox" id="auto-rand"> 每次运行前自动换新种子
-    </label>
-  </div>
-</div>
+    <div>
+      <div class="field-label">
+        <span>🎲 全局种子（Seed）</span>
+        <span class="hint">全组共用保连贯</span>
+      </div>
+      <div class="row-inline">
+        <input id="seed" type="number" value="42">
+        <button type="button" id="rand-seed" class="btn-secondary btn-sm">🎲 随机</button>
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="auto-rand"> 每次批量生成前自动换新种子
+      </label>
+    </div>
 
-<div id="progress-wrap">
-  <div class="progress-head">
-    <span id="status">准备中……</span>
-    <span id="status-pct">0%</span>
-  </div>
-  <div class="progress-bar-bg">
-    <div id="progress-bar"></div>
-  </div>
-</div>
+    <details class="collapse-box">
+      <summary>🚫 全局负提示词（Negative Prompt）</summary>
+      <textarea id="negative" rows="3">photorealistic, 3d render, blurry, low quality, distorted anatomy, text, watermark, deformed paws</textarea>
+    </details>
 
-<div id="results"></div>
+    <div class="dna-actions">
+      <button type="button" id="run-batch" class="btn-primary">✨ 开始批量生成全部分镜</button>
+      <button type="button" id="compose-btn" class="btn-accent">🎬 一键合成运镜成片</button>
+    </div>
+  </aside>
+
+  <!-- 右侧：分镜卡片列表 -->
+  <section class="storyboard-col">
+    <div id="m2-banner" class="m2-banner">
+      <span>🎬 <strong>音画短片模式（MiniMax H3）</strong> 将在 Milestone 2 接入统一串行队列，当前请先使用「🖼️ 图文分镜模式」进行批量生图与运镜合成。</span>
+      <button type="button" id="back-to-storyboard" class="btn-secondary btn-sm">切回图文分镜</button>
+    </div>
+
+    <div class="toolbar-bar">
+      <div class="toolbar-stats">
+        <span>共 <strong id="shot-total">0</strong> 镜</span>
+        <span>·</span>
+        <span>已出图 <strong id="shot-ready">0</strong> 镜</span>
+        <span>·</span>
+        <span class="hint" id="aspect-badge">画幅 1344×768</span>
+      </div>
+      <div class="row-inline" style="gap: 8px;">
+        <button type="button" id="add-shot-btn" class="btn-secondary btn-sm">➕ 新增分镜</button>
+      </div>
+    </div>
+
+    <!-- FFmpeg 成片状态与播放器 -->
+    <div id="compose-panel" class="compose-panel">
+      <div class="compose-head">
+        <div>
+          <strong id="compose-title">🎬 运镜成片合成</strong>
+          <div class="compose-meta" id="compose-stage">准备中…</div>
+        </div>
+        <div id="compose-actions"></div>
+      </div>
+      <div class="compose-track">
+        <div class="compose-fill" id="compose-fill"></div>
+      </div>
+      <div id="compose-video-wrap" class="compose-video-wrap">
+        <video id="compose-video" controls playsinline></video>
+      </div>
+    </div>
+
+    <div id="shot-list" class="shot-list"></div>
+  </section>
+</main>
 
 <div id="lightbox" onclick="this.style.display='none'">
-  <img id="lightbox-img" src="" alt="预览">
+  <img id="lightbox-img" src="" alt="分镜大图预览">
 </div>
 
-<script>
+<script type="module">
 const $ = (id) => document.getElementById(id);
-let timer = null;
-let currentCards = [];
 
-// 1. 内置快捷风格与主角前缀胶囊（点击即填入前缀框）
+const CUSTOM_CHIPS_KEY = 'comfy_studio_custom_chips_v1';
+
+// 1. 内置快捷风格与主角前缀胶囊
 const STYLE_CHIPS = [
   {
     label: "🧡 扁平绘本风 · 橘猫主角",
@@ -369,7 +869,7 @@ const STYLE_CHIPS = [
   }
 ];
 
-// 2. 内置完整分镜故事预设（含前缀 + 多行分镜 + 适配的负提示词）
+// 2. 内置完整分镜故事预设
 const STORY_PRESETS = [
   {
     id: "kitchen_cat",
@@ -430,277 +930,702 @@ const STORY_PRESETS = [
   }
 ];
 
-function initPresets() {
-  const chipBox = $('style-chips');
-  STYLE_CHIPS.forEach(item => {
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.textContent = item.label;
-    chip.title = item.prefix;
-    chip.onclick = () => {
-      $('prefix').value = item.prefix;
-    };
-    chipBox.appendChild(chip);
-  });
+const MOTION_OPTIONS = [
+  { value: "zoom_in", label: "🔍 缓慢放大 (Zoom-in)" },
+  { value: "zoom_out", label: "🔎 缓慢缩小 (Zoom-out)" },
+  { value: "pan_right", label: "➡️ 向右平移 (Pan Right)" },
+  { value: "pan_left", label: "⬅️ 向左平移 (Pan Left)" },
+  { value: "static", label: "⏸️ 静止 (Static)" }
+];
 
-  const select = $('story-preset');
-  STORY_PRESETS.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name;
-    select.appendChild(opt);
-  });
+const DEFAULT_MOTION_CYCLE = ["zoom_in", "pan_right", "zoom_out", "pan_left"];
 
-  function applySelectedPreset() {
-    const id = select.value;
-    const preset = STORY_PRESETS.find(p => p.id === id);
-    if (!preset) return;
-    $('prefix').value = preset.prefix;
-    $('prompts').value = preset.prompts.join('\n');
-    $('negative').value = preset.negative;
-    if (typeof preset.seed === 'number') {
-      $('seed').value = preset.seed;
-    }
-    updateLineCount();
-  }
+let shots = [];
+let uidCounter = 1;
+let currentMode = "storyboard";
+let batchRunning = false;
+let batchTimer = null;
+let composeTimer = null;
 
-  select.addEventListener('change', applySelectedPreset);
-  $('apply-preset').addEventListener('click', applySelectedPreset);
+function nextUid() {
+  return "shot_" + (uidCounter++);
+}
 
-  select.value = STORY_PRESETS[0].id;
-  applySelectedPreset();
+function parseAspect() {
+  const [w, h] = ($("aspect-ratio").value || "1344x768").split("x").map(Number);
+  return { width: w || 1344, height: h || 768 };
 }
 
 function randomSeed() {
   return Math.floor(Math.random() * 2147483647) + 1;
 }
 
-function getSeedValue() {
-  const parsed = parseInt($('seed').value, 10);
-  return Number.isNaN(parsed) ? 42 : parsed;
+function getGlobalSeed() {
+  const n = parseInt($("seed").value, 10);
+  return Number.isNaN(n) ? 42 : n;
 }
 
-function updateLineCount() {
-  const lines = $('prompts').value.split('\n').map(s => s.trim()).filter(Boolean);
-  $('line-count').textContent = lines.length + ' 张';
-}
-
-$('prompts').addEventListener('input', updateLineCount);
-$('rand-seed').addEventListener('click', () => {
-  $('seed').value = randomSeed();
-});
-
-async function refreshHealth() {
-  try {
-    const r = await fetch('/api/health');
-    const h = await r.json();
-    const wf = h.workflow_loaded
-      ? '<span class="ok">workflow 已加载</span>'
-      : '<span class="bad">缺少 workflow_api_sdxl.json</span>';
-    const cu = h.comfyui === 'ok'
-      ? '<span class="ok">ComfyUI 正常</span>'
-      : '<span class="bad">连不上 ComfyUI</span>';
-    $('health').innerHTML = wf + ' · ' + cu + (h.queued ? ' · 排队中 ' + h.queued + ' 个任务' : '');
-  } catch (e) {
-    $('health').innerHTML = '<span class="bad">连不上生图服务</span>';
-  }
-}
-
-function setProgress(text, done, total) {
-  $('progress-wrap').style.display = 'block';
-  $('status').textContent = text;
+function setGpuQueueProgress(text, done, total, busy = false) {
+  $("gpu-queue-text").textContent = text;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  $('status-pct').textContent = pct + '%';
-  $('progress-bar').style.width = pct + '%';
-}
-
-async function poll(jobId, onComplete) {
-  try {
-    const r = await fetch('/api/status/' + jobId);
-    const j = await r.json();
-    if (j.status === 'done') {
-      clearInterval(timer);
-      setProgress('全部完成 ' + j.done + '/' + j.total, j.done, j.total);
-      $('run').disabled = false;
-      onComplete(j);
-    } else if (j.status === 'failed') {
-      clearInterval(timer);
-      setProgress('失败：' + (j.error || '未知错误'), j.done, j.total);
-      $('run').disabled = false;
-    } else {
-      const stateText = j.status === 'queued'
-        ? '排队等待中……'
-        : '正在生成第 ' + Math.min(j.done + 1, j.total) + ' / ' + j.total + ' 张（单张约 25~30 秒）';
-      setProgress(stateText, j.done, j.total);
-      if (j.items && j.items.length) {
-        onComplete(j, true);
-      }
-    }
-  } catch (e) {
-    clearInterval(timer);
-    setProgress('查状态失败：' + e, 0, 1);
-    $('run').disabled = false;
+  $("gpu-queue-pct").textContent = pct + "%";
+  $("gpu-queue-fill").style.width = pct + "%";
+  const dot = $("health-dot");
+  if (busy) {
+    dot.className = "dot busy";
   }
 }
 
-function renderCards() {
-  const box = $('results');
-  box.innerHTML = '';
-  currentCards.forEach((item, idx) => {
-    const card = document.createElement('div');
-    card.className = 'card' + (item.rerolling ? ' rerolling' : '');
+function loadCustomChips() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_CHIPS_KEY);
+    const arr = JSON.parse(raw || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
 
-    const imgWrap = document.createElement('div');
-    imgWrap.className = 'card-img-wrap';
-    const img = document.createElement('img');
-    img.src = '/results/' + encodeURIComponent(item.filename);
-    img.alt = item.filename;
-    img.title = '点击查看大图';
-    img.onclick = () => {
-      $('lightbox-img').src = img.src;
-      $('lightbox').style.display = 'flex';
+function saveCustomChips(arr) {
+  localStorage.setItem(CUSTOM_CHIPS_KEY, JSON.stringify(arr));
+}
+
+function renderChips() {
+  const box = $("style-chips");
+  box.innerHTML = "";
+
+  STYLE_CHIPS.forEach((item) => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = item.label;
+    chip.title = item.prefix;
+    chip.onclick = () => { $("prefix").value = item.prefix; };
+    box.appendChild(chip);
+  });
+
+  const custom = loadCustomChips();
+  custom.forEach((item, idx) => {
+    const chip = document.createElement("span");
+    chip.className = "chip custom";
+    chip.title = item.prefix;
+
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = "⭐ " + item.label;
+    labelSpan.onclick = () => { $("prefix").value = item.prefix; };
+
+    const del = document.createElement("span");
+    del.className = "chip-del";
+    del.textContent = "×";
+    del.title = "删除自定义胶囊";
+    del.onclick = (e) => {
+      e.stopPropagation();
+      const next = loadCustomChips();
+      next.splice(idx, 1);
+      saveCustomChips(next);
+      renderChips();
     };
-    imgWrap.appendChild(img);
 
-    const body = document.createElement('div');
-    body.className = 'card-body';
-
-    const promptEl = document.createElement('div');
-    promptEl.className = 'card-prompt';
-    promptEl.title = item.prompt;
-    promptEl.textContent = '#' + (idx + 1) + ' ' + item.prompt;
-
-    const footer = document.createElement('div');
-    footer.className = 'card-footer';
-
-    const left = document.createElement('span');
-    const a = document.createElement('a');
-    a.href = '/results/' + encodeURIComponent(item.filename);
-    a.download = item.filename;
-    a.textContent = '下载';
-    left.appendChild(a);
-    left.appendChild(document.createTextNode(' · seed:' + item.seed));
-
-    const rerollBtn = document.createElement('button');
-    rerollBtn.type = 'button';
-    rerollBtn.className = 'btn-reroll';
-    rerollBtn.textContent = '🔄 换种子重抽';
-    rerollBtn.disabled = Boolean(item.rerolling) || $('run').disabled;
-    rerollBtn.onclick = () => rerollSingle(idx);
-
-    footer.appendChild(left);
-    footer.appendChild(rerollBtn);
-
-    body.appendChild(promptEl);
-    body.appendChild(footer);
-    card.appendChild(imgWrap);
-    card.appendChild(body);
-    box.appendChild(card);
+    chip.appendChild(labelSpan);
+    chip.appendChild(del);
+    box.appendChild(chip);
   });
 }
 
-async function rerollSingle(idx) {
-  const target = currentCards[idx];
-  if (!target || target.rerolling) return;
-  const newSeed = (typeof target.seed === 'number' ? target.seed : 42) + 1;
-  target.rerolling = true;
-  renderCards();
+function createShot(prompt = "", index = 0) {
+  return {
+    uid: nextUid(),
+    prompt,
+    motion: DEFAULT_MOTION_CYCLE[index % DEFAULT_MOTION_CYCLE.length],
+    duration: 4,
+    filename: "",
+    imgVer: 0,
+    seed: null,
+    status: "idle", // idle | queued | running | ready | error
+    error: ""
+  };
+}
 
-  try {
-    const r = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompts: [target.prompt],
-        prefix: '',
-        negative_prompt: $('negative').value,
-        seed: newSeed,
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.status);
+function applyPreset(presetId) {
+  const preset = STORY_PRESETS.find((p) => p.id === presetId);
+  if (!preset) return;
+  $("prefix").value = preset.prefix;
+  $("negative").value = preset.negative;
+  if (typeof preset.seed === "number") {
+    $("seed").value = preset.seed;
+  }
+  shots = preset.prompts.map((p, idx) => createShot(p, idx));
+  renderShots();
+}
 
-    const singleTimer = setInterval(async () => {
-      try {
-        const sr = await fetch('/api/status/' + data.job_id);
-        const sj = await sr.json();
-        if (sj.status === 'done' && sj.items && sj.items.length) {
-          clearInterval(singleTimer);
-          currentCards[idx] = { ...sj.items[0], rerolling: false };
-          renderCards();
-        } else if (sj.status === 'failed') {
-          clearInterval(singleTimer);
-          alert('重抽失败：' + (sj.error || '未知错误'));
-          target.rerolling = false;
-          renderCards();
-        }
-      } catch (err) {
-        clearInterval(singleTimer);
-        target.rerolling = false;
-        renderCards();
-      }
-    }, 2000);
-  } catch (e) {
-    alert('重抽提交失败：' + e.message);
-    target.rerolling = false;
-    renderCards();
+function initPresets() {
+  renderChips();
+
+  const select = $("story-preset");
+  STORY_PRESETS.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  });
+
+  select.addEventListener("change", () => applyPreset(select.value));
+  $("apply-preset").addEventListener("click", () => applyPreset(select.value));
+
+  select.value = STORY_PRESETS[0].id;
+  applyPreset(STORY_PRESETS[0].id);
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case "queued": return ["排队中", "badge-queued"];
+    case "running": return ["生成中", "badge-running"];
+    case "ready": return ["已出图", "badge-ready"];
+    case "error": return ["失败", "badge-error"];
+    default: return ["待生成", "badge-idle"];
   }
 }
 
-$('run').addEventListener('click', async () => {
-  const prompts = $('prompts').value.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!prompts.length) {
-    setProgress('请先填写至少一行提示词。', 0, 1);
+function updateStats() {
+  $("shot-total").textContent = String(shots.length);
+  const readyCount = shots.filter((s) => Boolean(s.filename)).length;
+  $("shot-ready").textContent = String(readyCount);
+  const { width, height } = parseAspect();
+  $("aspect-badge").textContent = `画幅 ${width}×${height}`;
+  $("compose-btn").disabled = currentMode !== "storyboard" || readyCount === 0;
+  $("run-batch").disabled = currentMode !== "storyboard" || batchRunning || shots.length === 0;
+}
+
+function renderShots() {
+  const list = $("shot-list");
+  list.innerHTML = "";
+  const { width, height } = parseAspect();
+
+  shots.forEach((shot, idx) => {
+    const card = document.createElement("article");
+    card.className = "shot-card";
+
+    // 左：媒体预览
+    const media = document.createElement("div");
+    media.className = "shot-media" + ((shot.status === "queued" || shot.status === "running") ? " busy" : "");
+    media.style.aspectRatio = `${width} / ${height}`;
+
+    if (shot.filename) {
+      const img = document.createElement("img");
+      img.src = `/results/${encodeURIComponent(shot.filename)}?v=${shot.imgVer}`;
+      img.alt = `分镜 #${idx + 1}`;
+      img.title = "点击查看大图";
+      img.onclick = () => {
+        $("lightbox-img").src = img.src;
+        $("lightbox").style.display = "flex";
+      };
+      media.appendChild(img);
+
+      const metaBar = document.createElement("div");
+      metaBar.className = "shot-meta-bar";
+      const seedTag = document.createElement("span");
+      seedTag.className = "shot-seed-tag";
+      seedTag.textContent = `seed: ${shot.seed ?? getGlobalSeed()}`;
+      const dl = document.createElement("a");
+      dl.className = "shot-dl-link";
+      dl.href = `/results/${encodeURIComponent(shot.filename)}`;
+      dl.download = shot.filename;
+      dl.textContent = "下载";
+      metaBar.appendChild(seedTag);
+      metaBar.appendChild(dl);
+      media.appendChild(metaBar);
+    } else {
+      const ph = document.createElement("div");
+      ph.className = "shot-placeholder";
+      ph.innerHTML = `<span class="ph-icon">🖼️</span><span>分镜 #${String(idx + 1).padStart(2, "0")} 待生成</span>`;
+      media.appendChild(ph);
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "shot-overlay";
+    overlay.textContent = shot.status === "queued" ? "排队等待显存…" : "SDXL 绘制中…";
+    media.appendChild(overlay);
+
+    // 右：分镜控制
+    const body = document.createElement("div");
+    body.className = "shot-body";
+
+    const head = document.createElement("div");
+    head.className = "shot-head";
+
+    const titleGroup = document.createElement("div");
+    titleGroup.className = "shot-title-group";
+    const numEl = document.createElement("span");
+    numEl.className = "shot-num";
+    numEl.textContent = `#${String(idx + 1).padStart(2, "0")}`;
+    const [badgeText, badgeClass] = statusLabel(shot.status);
+    const badge = document.createElement("span");
+    badge.className = `badge ${badgeClass}`;
+    badge.textContent = badgeText;
+    titleGroup.appendChild(numEl);
+    titleGroup.appendChild(badge);
+
+    const orderBtns = document.createElement("div");
+    orderBtns.className = "shot-order-btns";
+
+    const upBtn = document.createElement("button");
+    upBtn.type = "button";
+    upBtn.className = "btn-icon";
+    upBtn.textContent = "↑";
+    upBtn.title = "上移分镜";
+    upBtn.disabled = idx === 0 || batchRunning;
+    upBtn.onclick = () => {
+      [shots[idx - 1], shots[idx]] = [shots[idx], shots[idx - 1]];
+      renderShots();
+    };
+
+    const downBtn = document.createElement("button");
+    downBtn.type = "button";
+    downBtn.className = "btn-icon";
+    downBtn.textContent = "↓";
+    downBtn.title = "下移分镜";
+    downBtn.disabled = idx === shots.length - 1 || batchRunning;
+    downBtn.onclick = () => {
+      [shots[idx], shots[idx + 1]] = [shots[idx + 1], shots[idx]];
+      renderShots();
+    };
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn-icon btn-danger-ghost";
+    delBtn.textContent = "✕";
+    delBtn.title = "删除此分镜";
+    delBtn.disabled = batchRunning;
+    delBtn.onclick = () => {
+      shots.splice(idx, 1);
+      renderShots();
+    };
+
+    orderBtns.appendChild(upBtn);
+    orderBtns.appendChild(downBtn);
+    orderBtns.appendChild(delBtn);
+
+    head.appendChild(titleGroup);
+    head.appendChild(orderBtns);
+
+    const ta = document.createElement("textarea");
+    ta.className = "shot-prompt";
+    ta.value = shot.prompt;
+    ta.placeholder = "描述本镜的画面景别、主体动作与环境变化…";
+    ta.oninput = () => { shot.prompt = ta.value; };
+
+    const controls = document.createElement("div");
+    controls.className = "shot-controls";
+
+    const motionGroup = document.createElement("div");
+    motionGroup.className = "shot-motion-group";
+
+    const mLabel = document.createElement("label");
+    mLabel.textContent = "运镜";
+    const mSelect = document.createElement("select");
+    MOTION_OPTIONS.forEach((opt) => {
+      const o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.label;
+      mSelect.appendChild(o);
+    });
+    mSelect.value = shot.motion;
+    mSelect.onchange = () => { shot.motion = mSelect.value; };
+
+    const dLabel = document.createElement("label");
+    dLabel.textContent = "时长";
+    const dSelect = document.createElement("select");
+    [3, 4, 5].forEach((sec) => {
+      const o = document.createElement("option");
+      o.value = String(sec);
+      o.textContent = `${sec}s`;
+      dSelect.appendChild(o);
+    });
+    dSelect.value = String(shot.duration);
+    dSelect.onchange = () => { shot.duration = Number(dSelect.value) || 4; };
+
+    motionGroup.appendChild(mLabel);
+    motionGroup.appendChild(mSelect);
+    motionGroup.appendChild(dLabel);
+    motionGroup.appendChild(dSelect);
+
+    const rerollBtn = document.createElement("button");
+    rerollBtn.type = "button";
+    rerollBtn.className = "btn-secondary btn-sm";
+    rerollBtn.textContent = "🔄 仅重绘此镜";
+    rerollBtn.disabled =
+      currentMode !== "storyboard" ||
+      shot.status === "queued" ||
+      shot.status === "running";
+    rerollBtn.onclick = () => rerollSingleShot(shot.uid);
+
+    controls.appendChild(motionGroup);
+    controls.appendChild(rerollBtn);
+
+    body.appendChild(head);
+    body.appendChild(ta);
+    if (shot.error) {
+      const errEl = document.createElement("div");
+      errEl.className = "shot-error-msg";
+      errEl.textContent = "⚠️ " + shot.error;
+      body.appendChild(errEl);
+    }
+    body.appendChild(controls);
+
+    card.appendChild(media);
+    card.appendChild(body);
+    list.appendChild(card);
+  });
+
+  updateStats();
+}
+
+async function rerollSingleShot(uid) {
+  const target = shots.find((s) => s.uid === uid);
+  if (!target) return;
+  const prompt = target.prompt.trim();
+  if (!prompt) {
+    target.status = "error";
+    target.error = "请先填写这一镜的场景描述";
+    renderShots();
     return;
   }
-  if ($('auto-rand').checked) {
-    $('seed').value = randomSeed();
-  }
-  const seed = getSeedValue();
-  const prefix = $('prefix').value.trim();
 
-  $('run').disabled = true;
-  currentCards = [];
-  renderCards();
-  setProgress('任务提交中……', 0, prompts.length);
+  const nextSeed = (typeof target.seed === "number" ? target.seed : getGlobalSeed()) + 1;
+  const { width, height } = parseAspect();
+  target.status = "queued";
+  target.error = "";
+  renderShots();
 
   try {
-    const r = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const r = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompts,
-        prefix,
-        negative_prompt: $('negative').value,
+        prompts: [prompt],
+        prefix: $("prefix").value.trim(),
+        negative_prompt: $("negative").value,
+        seed: nextSeed,
+        width,
+        height
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+    const pollTimer = setInterval(async () => {
+      try {
+        const sr = await fetch("/api/status/" + data.job_id);
+        const sj = await sr.json();
+        const card = shots.find((s) => s.uid === uid);
+        if (!card) {
+          clearInterval(pollTimer);
+          return;
+        }
+        if (sj.status === "done" && sj.items && sj.items.length) {
+          clearInterval(pollTimer);
+          card.filename = sj.items[0].filename;
+          card.seed = sj.items[0].seed;
+          card.imgVer += 1;
+          card.status = "ready";
+          card.error = "";
+          renderShots();
+          refreshHealth();
+        } else if (sj.status === "failed") {
+          clearInterval(pollTimer);
+          card.status = "error";
+          card.error = sj.error || "重绘失败";
+          renderShots();
+          refreshHealth();
+        } else {
+          const nextState = sj.status === "queued" ? "queued" : "running";
+          if (card.status !== nextState) {
+            card.status = nextState;
+            renderShots();
+          }
+        }
+      } catch (err) {
+        clearInterval(pollTimer);
+        const card = shots.find((s) => s.uid === uid);
+        if (card) {
+          card.status = "error";
+          card.error = err.message || "查询状态失败";
+          renderShots();
+        }
+      }
+    }, 1800);
+  } catch (e) {
+    target.status = "error";
+    target.error = e.message;
+    renderShots();
+  }
+}
+
+async function runBatchGenerate() {
+  const activeShots = shots.filter((s) => s.prompt.trim().length > 0);
+  if (!activeShots.length) {
+    setGpuQueueProgress("请至少填写一个分镜提示词", 0, 1, false);
+    return;
+  }
+
+  if ($("auto-rand").checked) {
+    $("seed").value = randomSeed();
+  }
+  const seed = getGlobalSeed();
+  const { width, height } = parseAspect();
+  const submittedUids = activeShots.map((s) => s.uid);
+
+  batchRunning = true;
+  activeShots.forEach((s) => {
+    s.status = "queued";
+    s.error = "";
+  });
+  renderShots();
+  setGpuQueueProgress("正在提交批量队列…", 0, activeShots.length, true);
+
+  try {
+    const r = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompts: activeShots.map((s) => s.prompt.trim()),
+        prefix: $("prefix").value.trim(),
+        negative_prompt: $("negative").value,
         seed,
-      }),
+        width,
+        height
+      })
     });
     const data = await r.json();
     if (!r.ok) {
-      setProgress('提交失败：' + (data.error || r.status), 0, 1);
-      $('run').disabled = false;
-      return;
+      throw new Error(data.error || `HTTP ${r.status}`);
     }
-    clearInterval(timer);
-    timer = setInterval(() => {
-      poll(data.job_id, (jobData) => {
-        currentCards = (jobData.items || []).map(it => ({ ...it, rerolling: false }));
-        renderCards();
-      });
-    }, 2000);
-    poll(data.job_id, (jobData) => {
-      currentCards = (jobData.items || []).map(it => ({ ...it, rerolling: false }));
-      renderCards();
-    });
+
+    clearInterval(batchTimer);
+    const pollOnce = async () => {
+      try {
+        const sr = await fetch("/api/status/" + data.job_id);
+        const sj = await sr.json();
+
+        // 把已完成的产物回填到对应的分镜卡片
+        (sj.items || []).forEach((item, idx) => {
+          const card = shots.find((s) => s.uid === submittedUids[idx]);
+          if (card && card.filename !== item.filename) {
+            card.filename = item.filename;
+            card.seed = item.seed;
+            card.imgVer += 1;
+            card.status = "ready";
+            card.error = "";
+          }
+        });
+
+        if (sj.status === "running") {
+          const runningIdx = Math.max(0, (sj.current_index || 1) - 1);
+          const runningCard = shots.find((s) => s.uid === submittedUids[runningIdx]);
+          if (runningCard && runningCard.status !== "ready") {
+            runningCard.status = "running";
+          }
+          setGpuQueueProgress(
+            `正在生成第 ${Math.min(sj.done + 1, sj.total)}/${sj.total} 镜`,
+            sj.done,
+            sj.total,
+            true
+          );
+        } else if (sj.status === "queued") {
+          setGpuQueueProgress(`排队中（共 ${sj.total} 镜）`, 0, sj.total, true);
+        } else if (sj.status === "done") {
+          clearInterval(batchTimer);
+          batchRunning = false;
+          setGpuQueueProgress(`全部完成 ${sj.done}/${sj.total}`, sj.done, sj.total, false);
+          refreshHealth();
+        } else if (sj.status === "failed") {
+          clearInterval(batchTimer);
+          batchRunning = false;
+          submittedUids.forEach((uid) => {
+            const c = shots.find((s) => s.uid === uid);
+            if (c && (c.status === "queued" || c.status === "running")) {
+              c.status = "error";
+              c.error = sj.error || "生成失败";
+            }
+          });
+          setGpuQueueProgress(`任务失败：${sj.error || "未知错误"}`, sj.done, sj.total, false);
+          refreshHealth();
+        }
+        renderShots();
+      } catch (err) {
+        clearInterval(batchTimer);
+        batchRunning = false;
+        setGpuQueueProgress("状态轮询异常", 0, 1, false);
+        renderShots();
+      }
+    };
+
+    batchTimer = setInterval(pollOnce, 1800);
+    pollOnce();
   } catch (e) {
-    setProgress('提交失败：' + e, 0, 1);
-    $('run').disabled = false;
+    batchRunning = false;
+    activeShots.forEach((s) => {
+      s.status = "error";
+      s.error = e.message;
+    });
+    setGpuQueueProgress("提交失败：" + e.message, 0, 1, false);
+    renderShots();
   }
+}
+
+async function startComposeVideo() {
+  const readyShots = shots.filter((s) => Boolean(s.filename));
+  if (!readyShots.length) return;
+
+  const { width, height } = parseAspect();
+  const panel = $("compose-panel");
+  const videoWrap = $("compose-video-wrap");
+  const actions = $("compose-actions");
+
+  panel.classList.add("show");
+  videoWrap.classList.remove("show");
+  actions.innerHTML = "";
+  $("compose-stage").textContent = "正在提交 FFmpeg 运镜合成队列…";
+  $("compose-fill").style.width = "5%";
+  $("compose-btn").disabled = true;
+
+  try {
+    const r = await fetch("/api/compose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shots: readyShots.map((s) => ({
+          filename: s.filename,
+          motion: s.motion,
+          duration: s.duration
+        })),
+        width,
+        height,
+        fps: 30,
+        transition: 0.5
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+    clearInterval(composeTimer);
+    const pollCompose = async () => {
+      try {
+        const cr = await fetch("/api/compose/" + data.compose_id);
+        const cj = await cr.json();
+        const pct = cj.total > 0 ? Math.round((cj.done / cj.total) * 100) : 0;
+        $("compose-fill").style.width = pct + "%";
+
+        if (cj.status === "done") {
+          clearInterval(composeTimer);
+          updateStats();
+          $("compose-stage").textContent =
+            `合成完成 · ${cj.width}×${cj.height} · ${cj.duration}s · 编码器 ${cj.encoder}`;
+
+          const dl = document.createElement("a");
+          dl.className = "btn-primary btn-sm";
+          dl.style.textDecoration = "none";
+          dl.href = cj.video_url;
+          dl.download = cj.filename || "storyboard.mp4";
+          dl.textContent = "⬇️ 下载成片 MP4";
+          actions.innerHTML = "";
+          actions.appendChild(dl);
+
+          const video = $("compose-video");
+          video.src = `${cj.video_url}?t=${Date.now()}`;
+          videoWrap.classList.add("show");
+        } else if (cj.status === "failed") {
+          clearInterval(composeTimer);
+          updateStats();
+          $("compose-stage").textContent = "合成失败：" + (cj.error || "未知错误");
+        } else {
+          $("compose-stage").textContent = cj.stage || "合成处理中…";
+        }
+      } catch (err) {
+        clearInterval(composeTimer);
+        updateStats();
+        $("compose-stage").textContent = "查询合成进度失败：" + err.message;
+      }
+    };
+
+    composeTimer = setInterval(pollCompose, 1200);
+    pollCompose();
+  } catch (e) {
+    updateStats();
+    $("compose-stage").textContent = "提交合成失败：" + e.message;
+  }
+}
+
+async function refreshHealth() {
+  try {
+    const r = await fetch("/api/health");
+    const h = await r.json();
+    const dot = $("health-dot");
+    const parts = [];
+    parts.push(h.workflow_loaded ? "工作流就绪" : "缺少工作流");
+    parts.push(h.comfyui === "ok" ? "ComfyUI 在线" : "ComfyUI 离线");
+    parts.push(h.ffmpeg ? (h.nvenc ? "FFmpeg (NVENC)" : "FFmpeg (x264)") : "缺少 FFmpeg");
+    if (h.queued) parts.push(`排队 ${h.queued}`);
+    $("health-text").textContent = parts.join(" · ");
+
+    const allGood = h.workflow_loaded && h.comfyui === "ok" && h.ffmpeg;
+    if (batchRunning) {
+      dot.className = "dot busy";
+    } else {
+      dot.className = allGood ? "dot ok" : "dot bad";
+    }
+
+    if (!batchRunning && h.active_job) {
+      setGpuQueueProgress(
+        `后台队列：${h.active_job.done}/${h.active_job.total}`,
+        h.active_job.done,
+        h.active_job.total,
+        true
+      );
+    } else if (!batchRunning && !h.active_job) {
+      setGpuQueueProgress(h.queued ? `排队中 (${h.queued})` : "显卡队列：空闲", 0, 1, false);
+    }
+  } catch {
+    $("health-dot").className = "dot bad";
+    $("health-text").textContent = "无法连接本地服务";
+  }
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mode === mode);
+  });
+  $("m2-banner").classList.toggle("show", mode === "video");
+  renderShots();
+}
+
+// 事件绑定
+$("rand-seed").addEventListener("click", () => { $("seed").value = randomSeed(); });
+$("aspect-ratio").addEventListener("change", renderShots);
+$("add-shot-btn").addEventListener("click", () => {
+  shots.push(createShot("", shots.length));
+  renderShots();
+});
+$("save-chip-btn").addEventListener("click", () => {
+  const name = $("custom-chip-name").value.trim();
+  const prefix = $("prefix").value.trim();
+  if (!name || !prefix) return;
+  const list = loadCustomChips();
+  list.push({ label: name, prefix });
+  saveCustomChips(list);
+  $("custom-chip-name").value = "";
+  renderChips();
+});
+$("run-batch").addEventListener("click", runBatchGenerate);
+$("compose-btn").addEventListener("click", startComposeVideo);
+$("back-to-storyboard").addEventListener("click", () => setMode("storyboard"));
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setMode(btn.dataset.mode));
 });
 
 initPresets();
 refreshHealth();
-setInterval(refreshHealth, 10000);
+setInterval(refreshHealth, 8000);
 </script>
 </body>
 </html>
