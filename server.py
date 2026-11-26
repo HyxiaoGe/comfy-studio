@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 Comfy Studio 本地 Web 工作台与 HTTP API 服务
 启动：
     D:\ComfyUI\python_embeded\python.exe server.py
@@ -43,12 +43,14 @@ from core.image_runner import (  # noqa: E402
     build_image_workflow,
     pick_prompt_nodes,
 )
+from core.storage import StudioStorage  # noqa: E402
 
 COMFYUI = DEFAULT_SERVER
 WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
 COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
+DB_PATH = os.path.join(BASE_DIR, "outputs", "studio.db")
 CLIENT_ID = str(uuid.uuid4())
 
 DEFAULT_WIDTH = 1344
@@ -61,6 +63,17 @@ job_queue = queue.Queue()
 compose_jobs = {}
 compose_lock = threading.Lock()
 compose_queue = queue.Queue()
+
+store = None
+store_lock = threading.Lock()
+
+
+def get_store():
+    global store  # noqa: PLW0603
+    with store_lock:
+        if store is None or store.db_path != os.path.abspath(DB_PATH):
+            store = StudioStorage(DB_PATH)
+        return store
 
 
 def _safe_filename(name):
@@ -84,12 +97,15 @@ def _normalize_size(width, height):
 def public_job(job):
     return {
         "id": job["id"],
+        "project_id": job.get("project_id") or "",
+        "mode": job.get("mode") or "image",
         "status": job["status"],
         "done": job["done"],
         "total": job["total"],
         "current_index": job["current_index"],
         "width": job["width"],
         "height": job["height"],
+        "seed": job.get("seed", DEFAULT_SEED),
         "results": list(job["results"]),
         "items": list(job["items"]),
         "out_dir": os.path.abspath(OUT_DIR),
@@ -98,14 +114,16 @@ def public_job(job):
 
 
 def public_compose_job(cjob):
+    fname = cjob.get("filename") or ""
     return {
         "id": cjob["id"],
+        "project_id": cjob.get("project_id") or "",
         "status": cjob["status"],
         "done": cjob["done"],
         "total": cjob["total"],
         "stage": cjob["stage"],
-        "filename": cjob["filename"],
-        "video_url": f"/composed/{cjob['filename']}" if cjob["filename"] else "",
+        "filename": fname,
+        "video_url": f"/composed/{fname}" if fname else "",
         "encoder": cjob["encoder"],
         "width": cjob["width"],
         "height": cjob["height"],
@@ -125,12 +143,22 @@ def merge_prompt(prefix, prompt):
     return p + sep + s
 
 
-def new_job(prompts, negative_prompt, seed, prefix="", width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
+def new_job(
+    prompts,
+    negative_prompt,
+    seed,
+    prefix="",
+    width=DEFAULT_WIDTH,
+    height=DEFAULT_HEIGHT,
+    project_id="",
+):
     job_id = uuid.uuid4().hex[:12]
     full_prompts = [merge_prompt(prefix, p) for p in prompts]
     w, h = _normalize_size(width, height)
     job = {
         "id": job_id,
+        "project_id": project_id or "",
+        "mode": "image",
         "prompts": full_prompts,
         "negative_prompt": negative_prompt,
         "seed": seed,
@@ -146,15 +174,18 @@ def new_job(prompts, negative_prompt, seed, prefix="", width=DEFAULT_WIDTH, heig
     }
     with jobs_lock:
         jobs[job_id] = job
+    get_store().create_job(job)
     job_queue.put(job_id)
     return job
 
 
-def new_compose_job(shots, width, height, fps, transition):
+def new_compose_job(shots, shots_meta, width, height, fps, transition, project_id=""):
     cid = uuid.uuid4().hex[:12]
     cjob = {
         "id": cid,
+        "project_id": project_id or "",
         "shots": shots,
+        "shots_meta": shots_meta,
         "width": ensure_even(width, DEFAULT_WIDTH),
         "height": ensure_even(height, DEFAULT_HEIGHT),
         "fps": fps,
@@ -170,20 +201,26 @@ def new_compose_job(shots, width, height, fps, transition):
     }
     with compose_lock:
         compose_jobs[cid] = cjob
+    get_store().create_composition(cjob)
     compose_queue.put(cid)
     return cjob
 
 
 def run_job(job_id):
+    st = get_store()
     with jobs_lock:
         job = jobs[job_id]
         job["status"] = "running"
+    st.update_job(job_id, status="running")
+
     template = load_json(WORKFLOW_PATH)
     (pos_id, _pos_node), neg = pick_prompt_nodes(template)
     neg_id = neg[0] if neg is not None else None
     for i, prompt in enumerate(job["prompts"]):
         with jobs_lock:
             job["current_index"] = i + 1
+        st.update_job(job_id, current_index=i + 1)
+
         image_id = "%s_%02d" % (job_id, i + 1)
         image = {"id": image_id, "prompt": prompt}
         wf = build_image_workflow(
@@ -214,15 +251,22 @@ def run_job(job_id):
                     "height": job["height"],
                 })
             job["done"] = i + 1
+            results_copy = list(job["results"])
+            items_copy = list(job["items"])
+        st.update_job(job_id, done=i + 1, results=results_copy, items=items_copy)
+
     with jobs_lock:
         job["status"] = "done"
+    st.update_job(job_id, status="done")
 
 
 def run_compose_job(cid):
+    st = get_store()
     with compose_lock:
         cjob = compose_jobs[cid]
         cjob["status"] = "running"
         cjob["stage"] = "准备合成运镜成片…"
+    st.update_composition(cid, status="running", stage="准备合成运镜成片…")
 
     os.makedirs(COMPOSED_DIR, exist_ok=True)
     out_name = f"story_{cid}.mp4"
@@ -233,6 +277,7 @@ def run_compose_job(cid):
             cjob["done"] = done
             cjob["total"] = total
             cjob["stage"] = stage
+        st.update_composition(cid, done=done, total=total, stage=stage)
 
     result = compose_storyboard_video(
         cjob["shots"],
@@ -250,6 +295,16 @@ def run_compose_job(cid):
         cjob["encoder"] = result["encoder"]
         cjob["duration"] = result["duration"]
         cjob["stage"] = "成片导出完成"
+        tot = cjob["total"]
+    st.update_composition(
+        cid,
+        status="done",
+        done=tot,
+        filename=out_name,
+        encoder=result["encoder"],
+        duration=result["duration"],
+        stage="成片导出完成",
+    )
 
 
 def worker():
@@ -263,6 +318,7 @@ def worker():
                 if job is not None:
                     job["status"] = "failed"
                     job["error"] = str(e)
+            get_store().update_job(job_id, status="failed", error=str(e))
         finally:
             job_queue.task_done()
 
@@ -279,6 +335,9 @@ def compose_worker():
                     cjob["status"] = "failed"
                     cjob["error"] = str(e)
                     cjob["stage"] = "合成失败"
+            get_store().update_composition(
+                cid, status="failed", error=str(e), stage="合成失败"
+            )
         finally:
             compose_queue.task_done()
 
@@ -301,6 +360,7 @@ def health():
         "comfyui": "ok" if check_comfyui_health(COMFYUI) else "unreachable",
         "ffmpeg": has_ffmpeg(),
         "nvenc": detect_nvenc(),
+        "db_ready": get_store() is not None,
         "queued": job_queue.qsize(),
         "jobs": len(jobs),
         "active_job": active_job,
@@ -382,18 +442,39 @@ class Handler(BaseHTTPRequestHandler):
             self._file(WEB_INDEX_PATH, "text/html; charset=utf-8")
         elif path == "/api/health":
             self._json(health())
+        elif path == "/api/jobs":
+            self._json({"jobs": [public_job(j) for j in get_store().list_jobs()]})
         elif path.startswith("/api/status/"):
             job_id = path[len("/api/status/"):]
             with jobs_lock:
                 job = jobs.get(job_id)
             if job is None:
+                job = get_store().get_job(job_id)
+            if job is None:
                 self._json({"error": "没有这个任务"}, 404)
             else:
                 self._json(public_job(job))
+        elif path == "/api/projects":
+            self._json({"projects": get_store().list_projects()})
+        elif path == "/api/projects/latest":
+            self._json({"project": get_store().get_latest_project()})
+        elif path.startswith("/api/projects/"):
+            pid = path[len("/api/projects/"):]
+            proj = get_store().get_project(pid)
+            if proj is None:
+                self._json({"error": "找不到该项目"}, 404)
+            else:
+                self._json({"project": proj})
+        elif path == "/api/compositions":
+            self._json({
+                "compositions": get_store().list_compositions(composed_dir=COMPOSED_DIR)
+            })
         elif path.startswith("/api/compose/"):
             cid = path[len("/api/compose/"):]
             with compose_lock:
                 cjob = compose_jobs.get(cid)
+            if cjob is None:
+                cjob = get_store().get_composition(cid)
             if cjob is None:
                 self._json({"error": "没有这个合成任务"}, 404)
             else:
@@ -425,8 +506,38 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_generate()
         elif path == "/api/compose":
             self._handle_compose()
+        elif path == "/api/projects":
+            self._handle_save_project()
         else:
             self._json({"error": "没有这个地址"}, 404)
+
+    def do_DELETE(self):  # noqa: N802
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/api/projects/"):
+            pid = path[len("/api/projects/"):]
+            if not get_store().delete_project(pid):
+                self._json({"error": "找不到该项目"}, 404)
+                return
+            self._json({"ok": True})
+        elif path.startswith("/api/compositions/"):
+            cid = path[len("/api/compositions/"):]
+            if not get_store().delete_composition(cid, composed_dir=COMPOSED_DIR):
+                self._json({"error": "找不到该成片记录"}, 404)
+                return
+            self._json({"ok": True})
+        else:
+            self._json({"error": "没有这个地址"}, 404)
+
+    def _handle_save_project(self):
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        if not isinstance(data, dict):
+            self._json({"error": "项目数据必须是 JSON 对象"}, 400)
+            return
+        proj = get_store().upsert_project(data)
+        self._json({"project": proj})
 
     def _handle_generate(self):
         data, err = self._read_json_body()
@@ -448,15 +559,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(seed, int) or isinstance(seed, bool):
             seed = DEFAULT_SEED
         prefix = data.get("prefix") if isinstance(data.get("prefix"), str) else ""
-        width = data.get("width")
-        height = data.get("height")
+        project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
         job = new_job(
             prompts,
             data.get("negative_prompt") or "",
             seed,
             prefix=prefix,
-            width=width,
-            height=height,
+            width=data.get("width"),
+            height=data.get("height"),
+            project_id=project_id,
         )
         self._json({"job_id": job["id"]}, 202)
 
@@ -477,6 +588,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         shots = []
+        shots_meta = []
         for idx, item in enumerate(raw_shots):
             if not isinstance(item, dict):
                 self._json({"error": f"第 {idx + 1} 个分镜参数格式不对"}, 400)
@@ -498,6 +610,7 @@ class Handler(BaseHTTPRequestHandler):
                 dur = DEFAULT_DURATION
             dur = max(1.0, min(15.0, dur))
             shots.append({"path": img_path, "motion": motion, "duration": dur})
+            shots_meta.append({"filename": fname, "motion": motion, "duration": dur})
 
         width, height = _normalize_size(data.get("width"), data.get("height"))
         try:
@@ -510,33 +623,42 @@ class Handler(BaseHTTPRequestHandler):
             )
         except (TypeError, ValueError):
             transition = DEFAULT_TRANSITION
+        project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
 
-        cjob = new_compose_job(shots, width, height, fps, transition)
+        cjob = new_compose_job(
+            shots, shots_meta, width, height, fps, transition, project_id=project_id
+        )
         self._json({"compose_id": cjob["id"]}, 202)
 
 
 def main(argv=None):
-    global COMFYUI, WORKFLOW_PATH, OUT_DIR, COMPOSED_DIR  # noqa: PLW0603
+    global COMFYUI, WORKFLOW_PATH, OUT_DIR, COMPOSED_DIR, DB_PATH, store  # noqa: PLW0603
     ap = argparse.ArgumentParser(description="Comfy Studio 本地生图工作台")
     ap.add_argument("--host", default="0.0.0.0", help="监听地址（默认 0.0.0.0）")
     ap.add_argument("--port", type=int, default=8899, help="端口（默认 8899）")
     ap.add_argument("--comfyui", default=DEFAULT_SERVER, help="ComfyUI 地址")
     ap.add_argument("--workflow", default=None, help="API 格式 workflow 路径")
     ap.add_argument("--out-dir", default=None, help="出图目录")
+    ap.add_argument("--db", default=None, help="SQLite 数据库文件路径")
     args = ap.parse_args(argv)
 
     COMFYUI = args.comfyui
     WORKFLOW_PATH = args.workflow or os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
     OUT_DIR = args.out_dir or os.path.join(BASE_DIR, "outputs", "images")
     COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
+    DB_PATH = args.db or os.path.join(BASE_DIR, "outputs", "studio.db")
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(COMPOSED_DIR, exist_ok=True)
+
+    store = StudioStorage(DB_PATH)
+    store.mark_interrupted_on_startup()
 
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=compose_worker, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print("Comfy Studio 工作台运行在 http://%s:%d" % (args.host, args.port))
     print("本机访问：http://127.0.0.1:%d | ComfyUI：%s" % (args.port, COMFYUI))
+    print("存储数据库：%s" % DB_PATH)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -668,6 +668,116 @@
     color: #fca5a5;
   }
 
+  .save-status {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .save-status.saving { color: #fcd34d; }
+  .save-status.saved { color: #86efac; }
+
+  /* 历史项目与成片抽屉 */
+  .drawer-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 8, 14, 0.72);
+    z-index: 900;
+    justify-content: flex-end;
+  }
+  .drawer-backdrop.show { display: flex; }
+  .drawer {
+    width: min(500px, 94vw);
+    height: 100%;
+    background: var(--bg-elevated);
+    border-left: 1px solid var(--border);
+    box-shadow: -12px 0 36px rgba(0, 0, 0, 0.55);
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .drawer-head h3 { margin: 0; font-size: 15px; }
+  .drawer-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .drawer-tab {
+    flex: 1;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  .drawer-tab.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .history-item {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 12px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .history-item.active-proj {
+    border-color: var(--primary);
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .history-thumb {
+    width: 68px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .history-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .history-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .history-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
   /* Lightbox */
   #lightbox {
     display: none;
@@ -707,6 +817,7 @@
     </div>
 
     <div class="topbar-status">
+      <button type="button" id="open-history-btn" class="btn-secondary btn-sm">📂 历史与成片</button>
       <div class="status-pill" id="health-pill">
         <span class="dot" id="health-dot"></span>
         <span id="health-text">正在检测服务…</span>
@@ -727,8 +838,16 @@
   <aside class="panel dna-panel">
     <h2 class="panel-title">
       <span>🧬 全局 DNA 控制</span>
-      <span class="hint">锁死画风与主角</span>
+      <span class="save-status" id="save-status">💾 就绪</span>
     </h2>
+
+    <div>
+      <div class="field-label">
+        <span>📝 当前项目名称</span>
+        <span class="hint">自动保存草稿</span>
+      </div>
+      <input id="project-title" type="text" placeholder="如：清晨厨房的猫">
+    </div>
 
     <div>
       <div class="field-label">
@@ -836,6 +955,23 @@
   </section>
 </main>
 
+<div id="history-drawer" class="drawer-backdrop">
+  <aside class="drawer" aria-label="历史项目与成片库">
+    <div class="drawer-head">
+      <h3>📂 历史项目与成片库</h3>
+      <div class="row-inline" style="gap: 8px;">
+        <button type="button" id="new-blank-proj-btn" class="btn-secondary btn-sm">➕ 新建空白</button>
+        <button type="button" id="close-history-btn" class="btn-icon">✕</button>
+      </div>
+    </div>
+    <div class="drawer-tabs">
+      <button type="button" class="drawer-tab active" data-tab="projects">📚 分镜项目</button>
+      <button type="button" class="drawer-tab" data-tab="compositions">🎬 成片库</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+</div>
+
 <div id="lightbox" onclick="this.style.display='none'">
   <img id="lightbox-img" src="" alt="分镜大图预览">
 </div>
@@ -844,6 +980,7 @@
 const $ = (id) => document.getElementById(id);
 
 const CUSTOM_CHIPS_KEY = 'comfy_studio_custom_chips_v1';
+const ACTIVE_BATCH_KEY = 'comfy_studio_active_batch_v1';
 
 // 1. 内置快捷风格与主角前缀胶囊
 const STYLE_CHIPS = [
@@ -943,9 +1080,74 @@ const DEFAULT_MOTION_CYCLE = ["zoom_in", "pan_right", "zoom_out", "pan_left"];
 let shots = [];
 let uidCounter = 1;
 let currentMode = "storyboard";
+let currentProjectId = null;
+let saveTimer = null;
+let drawerTab = "projects";
 let batchRunning = false;
 let batchTimer = null;
 let composeTimer = null;
+
+function setSaveStatus(text, stateClass = "") {
+  const el = $("save-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "save-status" + (stateClass ? " " + stateClass : "");
+}
+
+function collectProjectPayload() {
+  const { width, height } = parseAspect();
+  return {
+    id: currentProjectId || "",
+    title: ($("project-title").value || "").trim() || "未命名分镜项目",
+    mode: currentMode,
+    prefix: $("prefix").value,
+    negative_prompt: $("negative").value,
+    seed: getGlobalSeed(),
+    width,
+    height,
+    shots: shots.map((s) => ({
+      uid: s.uid,
+      prompt: s.prompt,
+      motion: s.motion,
+      duration: s.duration,
+      filename: s.filename || "",
+      imgVer: s.imgVer || 0,
+      seed: s.seed ?? null,
+      status: s.filename ? "ready" : (s.status === "error" ? "error" : "idle"),
+      error: s.error || ""
+    }))
+  };
+}
+
+async function saveCurrentProjectNow() {
+  clearTimeout(saveTimer);
+  setSaveStatus("💾 保存中…", "saving");
+  try {
+    const r = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(collectProjectPayload())
+    });
+    const data = await r.json();
+    if (r.ok && data.project) {
+      currentProjectId = data.project.id;
+      setSaveStatus("💾 已保存", "saved");
+      return data.project;
+    }
+    setSaveStatus("⚠️ 保存失败", "");
+  } catch {
+    setSaveStatus("⚠️ 保存失败", "");
+  }
+  return null;
+}
+
+function scheduleSave() {
+  setSaveStatus("💾 待保存…", "saving");
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveCurrentProjectNow();
+  }, 500);
+}
 
 function nextUid() {
   return "shot_" + (uidCounter++);
@@ -999,7 +1201,10 @@ function renderChips() {
     chip.className = "chip";
     chip.textContent = item.label;
     chip.title = item.prefix;
-    chip.onclick = () => { $("prefix").value = item.prefix; };
+    chip.onclick = () => {
+      $("prefix").value = item.prefix;
+      scheduleSave();
+    };
     box.appendChild(chip);
   });
 
@@ -1011,7 +1216,10 @@ function renderChips() {
 
     const labelSpan = document.createElement("span");
     labelSpan.textContent = "⭐ " + item.label;
-    labelSpan.onclick = () => { $("prefix").value = item.prefix; };
+    labelSpan.onclick = () => {
+      $("prefix").value = item.prefix;
+      scheduleSave();
+    };
 
     const del = document.createElement("span");
     del.className = "chip-del";
@@ -1045,9 +1253,15 @@ function createShot(prompt = "", index = 0) {
   };
 }
 
-function applyPreset(presetId) {
+async function applyPreset(presetId, { asNew = true } = {}) {
   const preset = STORY_PRESETS.find((p) => p.id === presetId);
   if (!preset) return;
+  if (asNew) {
+    currentProjectId = null;
+    $("compose-panel").classList.remove("show");
+    $("compose-video-wrap").classList.remove("show");
+  }
+  $("project-title").value = preset.name.replace(/^[^\u4e00-\u9fa5A-Za-z0-9]+/, "").split("（")[0].trim();
   $("prefix").value = preset.prefix;
   $("negative").value = preset.negative;
   if (typeof preset.seed === "number") {
@@ -1055,9 +1269,86 @@ function applyPreset(presetId) {
   }
   shots = preset.prompts.map((p, idx) => createShot(p, idx));
   renderShots();
+  await saveCurrentProjectNow();
 }
 
-function initPresets() {
+function applyProjectRecord(proj) {
+  if (!proj) return;
+  currentProjectId = proj.id;
+  $("project-title").value = proj.title || "未命名分镜项目";
+  $("prefix").value = proj.prefix || "";
+  $("negative").value = proj.negative_prompt || "";
+  $("seed").value = typeof proj.seed === "number" ? proj.seed : 42;
+  const aspectVal = `${proj.width || 1344}x${proj.height || 768}`;
+  const aspectSel = $("aspect-ratio");
+  if ([...aspectSel.options].some((o) => o.value === aspectVal)) {
+    aspectSel.value = aspectVal;
+  }
+  shots = (proj.shots || []).map((s, idx) => ({
+    uid: s.uid || nextUid(),
+    prompt: s.prompt || "",
+    motion: s.motion || DEFAULT_MOTION_CYCLE[idx % DEFAULT_MOTION_CYCLE.length],
+    duration: Number(s.duration) || 4,
+    filename: s.filename || "",
+    imgVer: Number(s.imgVer) || (s.filename ? 1 : 0),
+    seed: typeof s.seed === "number" ? s.seed : null,
+    status: s.filename ? "ready" : (s.status === "error" ? "error" : "idle"),
+    error: s.error || ""
+  }));
+  // 确保后续新建 shot 的 uid 不撞车
+  shots.forEach((s) => {
+    const m = /^shot_(\d+)$/.exec(s.uid);
+    if (m) uidCounter = Math.max(uidCounter, Number(m[1]) + 1);
+  });
+  setMode(proj.mode === "video" ? "video" : "storyboard", { skipSave: true });
+  setSaveStatus("💾 已从历史恢复", "saved");
+}
+
+function showComposedVideo(cj) {
+  if (!cj || !cj.video_url) return;
+  const panel = $("compose-panel");
+  const videoWrap = $("compose-video-wrap");
+  const actions = $("compose-actions");
+
+  panel.classList.add("show");
+  $("compose-fill").style.width = "100%";
+  $("compose-stage").textContent =
+    `成片就绪 · ${cj.width}×${cj.height} · ${cj.duration}s · 编码器 ${cj.encoder || "h264"}`;
+
+  const dl = document.createElement("a");
+  dl.className = "btn-primary btn-sm";
+  dl.style.textDecoration = "none";
+  dl.href = cj.video_url;
+  dl.download = cj.filename || "storyboard.mp4";
+  dl.textContent = "⬇️ 下载成片 MP4";
+  actions.innerHTML = "";
+  actions.appendChild(dl);
+
+  const video = $("compose-video");
+  video.src = `${cj.video_url}?t=${Date.now()}`;
+  videoWrap.classList.add("show");
+}
+
+async function restoreProjectComposition(projectId) {
+  try {
+    const r = await fetch("/api/compositions");
+    const data = await r.json();
+    const list = data.compositions || [];
+    const match =
+      list.find((c) => c.status === "done" && c.file_exists && c.project_id === projectId) ||
+      null;
+    if (match) {
+      showComposedVideo(match);
+    } else {
+      $("compose-panel").classList.remove("show");
+      $("compose-video-wrap").classList.remove("show");
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function initApp() {
   renderChips();
 
   const select = $("story-preset");
@@ -1068,11 +1359,41 @@ function initPresets() {
     select.appendChild(opt);
   });
 
-  select.addEventListener("change", () => applyPreset(select.value));
-  $("apply-preset").addEventListener("click", () => applyPreset(select.value));
+  select.addEventListener("change", () => applyPreset(select.value, { asNew: true }));
+  $("apply-preset").addEventListener("click", () => applyPreset(select.value, { asNew: false }));
 
-  select.value = STORY_PRESETS[0].id;
-  applyPreset(STORY_PRESETS[0].id);
+  let restored = false;
+  try {
+    const r = await fetch("/api/projects/latest");
+    const data = await r.json();
+    if (data && data.project) {
+      applyProjectRecord(data.project);
+      await restoreProjectComposition(data.project.id);
+      restored = true;
+    }
+  } catch {
+    // fall back to default preset
+  }
+
+  if (!restored) {
+    select.value = STORY_PRESETS[0].id;
+    await applyPreset(STORY_PRESETS[0].id, { asNew: true });
+  }
+
+  // 若刷新前有未结束的批量任务，继续恢复轮询
+  try {
+    const raw = localStorage.getItem(ACTIVE_BATCH_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved && saved.job_id && Array.isArray(saved.submittedUids) && saved.project_id === currentProjectId) {
+        resumeBatchPolling(saved.job_id, saved.submittedUids);
+      } else {
+        localStorage.removeItem(ACTIVE_BATCH_KEY);
+      }
+    }
+  } catch {
+    localStorage.removeItem(ACTIVE_BATCH_KEY);
+  }
 }
 
 function statusLabel(status) {
@@ -1176,6 +1497,7 @@ function renderShots() {
     upBtn.onclick = () => {
       [shots[idx - 1], shots[idx]] = [shots[idx], shots[idx - 1]];
       renderShots();
+      scheduleSave();
     };
 
     const downBtn = document.createElement("button");
@@ -1187,6 +1509,7 @@ function renderShots() {
     downBtn.onclick = () => {
       [shots[idx], shots[idx + 1]] = [shots[idx + 1], shots[idx]];
       renderShots();
+      scheduleSave();
     };
 
     const delBtn = document.createElement("button");
@@ -1198,6 +1521,7 @@ function renderShots() {
     delBtn.onclick = () => {
       shots.splice(idx, 1);
       renderShots();
+      scheduleSave();
     };
 
     orderBtns.appendChild(upBtn);
@@ -1211,7 +1535,10 @@ function renderShots() {
     ta.className = "shot-prompt";
     ta.value = shot.prompt;
     ta.placeholder = "描述本镜的画面景别、主体动作与环境变化…";
-    ta.oninput = () => { shot.prompt = ta.value; };
+    ta.oninput = () => {
+      shot.prompt = ta.value;
+      scheduleSave();
+    };
 
     const controls = document.createElement("div");
     controls.className = "shot-controls";
@@ -1229,7 +1556,10 @@ function renderShots() {
       mSelect.appendChild(o);
     });
     mSelect.value = shot.motion;
-    mSelect.onchange = () => { shot.motion = mSelect.value; };
+    mSelect.onchange = () => {
+      shot.motion = mSelect.value;
+      scheduleSave();
+    };
 
     const dLabel = document.createElement("label");
     dLabel.textContent = "时长";
@@ -1241,7 +1571,10 @@ function renderShots() {
       dSelect.appendChild(o);
     });
     dSelect.value = String(shot.duration);
-    dSelect.onchange = () => { shot.duration = Number(dSelect.value) || 4; };
+    dSelect.onchange = () => {
+      shot.duration = Number(dSelect.value) || 4;
+      scheduleSave();
+    };
 
     motionGroup.appendChild(mLabel);
     motionGroup.appendChild(mSelect);
@@ -1290,6 +1623,9 @@ async function rerollSingleShot(uid) {
     return;
   }
 
+  if (!currentProjectId) {
+    await saveCurrentProjectNow();
+  }
   const nextSeed = (typeof target.seed === "number" ? target.seed : getGlobalSeed()) + 1;
   const { width, height } = parseAspect();
   target.status = "queued";
@@ -1301,6 +1637,7 @@ async function rerollSingleShot(uid) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        project_id: currentProjectId || "",
         prompts: [prompt],
         prefix: $("prefix").value.trim(),
         negative_prompt: $("negative").value,
@@ -1329,12 +1666,14 @@ async function rerollSingleShot(uid) {
           card.status = "ready";
           card.error = "";
           renderShots();
+          saveCurrentProjectNow();
           refreshHealth();
-        } else if (sj.status === "failed") {
+        } else if (sj.status === "failed" || sj.status === "interrupted") {
           clearInterval(pollTimer);
           card.status = "error";
           card.error = sj.error || "重绘失败";
           renderShots();
+          saveCurrentProjectNow();
           refreshHealth();
         } else {
           const nextState = sj.status === "queued" ? "queued" : "running";
@@ -1360,6 +1699,81 @@ async function rerollSingleShot(uid) {
   }
 }
 
+function resumeBatchPolling(jobId, submittedUids) {
+  batchRunning = true;
+  clearInterval(batchTimer);
+  const pollOnce = async () => {
+    try {
+      const sr = await fetch("/api/status/" + jobId);
+      const sj = await sr.json();
+      if (!sr.ok) throw new Error(sj.error || `HTTP ${sr.status}`);
+
+      let changed = false;
+      (sj.items || []).forEach((item, idx) => {
+        const card = shots.find((s) => s.uid === submittedUids[idx]);
+        if (card && card.filename !== item.filename) {
+          card.filename = item.filename;
+          card.seed = item.seed;
+          card.imgVer += 1;
+          card.status = "ready";
+          card.error = "";
+          changed = true;
+        }
+      });
+
+      if (sj.status === "running") {
+        const runningIdx = Math.max(0, (sj.current_index || 1) - 1);
+        const runningCard = shots.find((s) => s.uid === submittedUids[runningIdx]);
+        if (runningCard && runningCard.status !== "ready") {
+          runningCard.status = "running";
+        }
+        setGpuQueueProgress(
+          `正在生成第 ${Math.min(sj.done + 1, sj.total)}/${sj.total} 镜`,
+          sj.done,
+          sj.total,
+          true
+        );
+      } else if (sj.status === "queued") {
+        setGpuQueueProgress(`排队中（共 ${sj.total} 镜）`, 0, sj.total, true);
+      } else if (sj.status === "done") {
+        clearInterval(batchTimer);
+        batchRunning = false;
+        localStorage.removeItem(ACTIVE_BATCH_KEY);
+        setGpuQueueProgress(`全部完成 ${sj.done}/${sj.total}`, sj.done, sj.total, false);
+        changed = true;
+        refreshHealth();
+      } else if (sj.status === "failed" || sj.status === "interrupted") {
+        clearInterval(batchTimer);
+        batchRunning = false;
+        localStorage.removeItem(ACTIVE_BATCH_KEY);
+        submittedUids.forEach((uid) => {
+          const c = shots.find((s) => s.uid === uid);
+          if (c && !c.filename && (c.status === "queued" || c.status === "running" || c.status === "idle")) {
+            c.status = "error";
+            c.error = sj.error || "生成中断或失败";
+          }
+        });
+        setGpuQueueProgress(`任务未完成：${sj.error || "已中断"}`, sj.done, sj.total, false);
+        changed = true;
+        refreshHealth();
+      }
+      renderShots();
+      if (changed) {
+        saveCurrentProjectNow();
+      }
+    } catch {
+      clearInterval(batchTimer);
+      batchRunning = false;
+      localStorage.removeItem(ACTIVE_BATCH_KEY);
+      setGpuQueueProgress("状态轮询异常", 0, 1, false);
+      renderShots();
+    }
+  };
+
+  batchTimer = setInterval(pollOnce, 1800);
+  pollOnce();
+}
+
 async function runBatchGenerate() {
   const activeShots = shots.filter((s) => s.prompt.trim().length > 0);
   if (!activeShots.length) {
@@ -1370,6 +1784,7 @@ async function runBatchGenerate() {
   if ($("auto-rand").checked) {
     $("seed").value = randomSeed();
   }
+  await saveCurrentProjectNow();
   const seed = getGlobalSeed();
   const { width, height } = parseAspect();
   const submittedUids = activeShots.map((s) => s.uid);
@@ -1387,6 +1802,7 @@ async function runBatchGenerate() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        project_id: currentProjectId || "",
         prompts: activeShots.map((s) => s.prompt.trim()),
         prefix: $("prefix").value.trim(),
         negative_prompt: $("negative").value,
@@ -1399,68 +1815,11 @@ async function runBatchGenerate() {
     if (!r.ok) {
       throw new Error(data.error || `HTTP ${r.status}`);
     }
-
-    clearInterval(batchTimer);
-    const pollOnce = async () => {
-      try {
-        const sr = await fetch("/api/status/" + data.job_id);
-        const sj = await sr.json();
-
-        // 把已完成的产物回填到对应的分镜卡片
-        (sj.items || []).forEach((item, idx) => {
-          const card = shots.find((s) => s.uid === submittedUids[idx]);
-          if (card && card.filename !== item.filename) {
-            card.filename = item.filename;
-            card.seed = item.seed;
-            card.imgVer += 1;
-            card.status = "ready";
-            card.error = "";
-          }
-        });
-
-        if (sj.status === "running") {
-          const runningIdx = Math.max(0, (sj.current_index || 1) - 1);
-          const runningCard = shots.find((s) => s.uid === submittedUids[runningIdx]);
-          if (runningCard && runningCard.status !== "ready") {
-            runningCard.status = "running";
-          }
-          setGpuQueueProgress(
-            `正在生成第 ${Math.min(sj.done + 1, sj.total)}/${sj.total} 镜`,
-            sj.done,
-            sj.total,
-            true
-          );
-        } else if (sj.status === "queued") {
-          setGpuQueueProgress(`排队中（共 ${sj.total} 镜）`, 0, sj.total, true);
-        } else if (sj.status === "done") {
-          clearInterval(batchTimer);
-          batchRunning = false;
-          setGpuQueueProgress(`全部完成 ${sj.done}/${sj.total}`, sj.done, sj.total, false);
-          refreshHealth();
-        } else if (sj.status === "failed") {
-          clearInterval(batchTimer);
-          batchRunning = false;
-          submittedUids.forEach((uid) => {
-            const c = shots.find((s) => s.uid === uid);
-            if (c && (c.status === "queued" || c.status === "running")) {
-              c.status = "error";
-              c.error = sj.error || "生成失败";
-            }
-          });
-          setGpuQueueProgress(`任务失败：${sj.error || "未知错误"}`, sj.done, sj.total, false);
-          refreshHealth();
-        }
-        renderShots();
-      } catch (err) {
-        clearInterval(batchTimer);
-        batchRunning = false;
-        setGpuQueueProgress("状态轮询异常", 0, 1, false);
-        renderShots();
-      }
-    };
-
-    batchTimer = setInterval(pollOnce, 1800);
-    pollOnce();
+    localStorage.setItem(
+      ACTIVE_BATCH_KEY,
+      JSON.stringify({ job_id: data.job_id, project_id: currentProjectId || "", submittedUids })
+    );
+    resumeBatchPolling(data.job_id, submittedUids);
   } catch (e) {
     batchRunning = false;
     activeShots.forEach((s) => {
@@ -1476,6 +1835,7 @@ async function startComposeVideo() {
   const readyShots = shots.filter((s) => Boolean(s.filename));
   if (!readyShots.length) return;
 
+  await saveCurrentProjectNow();
   const { width, height } = parseAspect();
   const panel = $("compose-panel");
   const videoWrap = $("compose-video-wrap");
@@ -1493,6 +1853,7 @@ async function startComposeVideo() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        project_id: currentProjectId || "",
         shots: readyShots.map((s) => ({
           filename: s.filename,
           motion: s.motion,
@@ -1518,22 +1879,8 @@ async function startComposeVideo() {
         if (cj.status === "done") {
           clearInterval(composeTimer);
           updateStats();
-          $("compose-stage").textContent =
-            `合成完成 · ${cj.width}×${cj.height} · ${cj.duration}s · 编码器 ${cj.encoder}`;
-
-          const dl = document.createElement("a");
-          dl.className = "btn-primary btn-sm";
-          dl.style.textDecoration = "none";
-          dl.href = cj.video_url;
-          dl.download = cj.filename || "storyboard.mp4";
-          dl.textContent = "⬇️ 下载成片 MP4";
-          actions.innerHTML = "";
-          actions.appendChild(dl);
-
-          const video = $("compose-video");
-          video.src = `${cj.video_url}?t=${Date.now()}`;
-          videoWrap.classList.add("show");
-        } else if (cj.status === "failed") {
+          showComposedVideo(cj);
+        } else if (cj.status === "failed" || cj.status === "interrupted") {
           clearInterval(composeTimer);
           updateStats();
           $("compose-stage").textContent = "合成失败：" + (cj.error || "未知错误");
@@ -1590,21 +1937,198 @@ async function refreshHealth() {
   }
 }
 
-function setMode(mode) {
+function setMode(mode, { skipSave = false } = {}) {
   currentMode = mode;
   document.querySelectorAll(".mode-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mode === mode);
   });
   $("m2-banner").classList.toggle("show", mode === "video");
   renderShots();
+  if (!skipSave) {
+    scheduleSave();
+  }
+}
+
+function formatTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function openHistoryDrawer(tab = drawerTab) {
+  drawerTab = tab;
+  document.querySelectorAll(".drawer-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === drawerTab);
+  });
+  $("history-drawer").classList.add("show");
+  renderDrawerContent();
+}
+
+function closeHistoryDrawer() {
+  $("history-drawer").classList.remove("show");
+}
+
+async function renderDrawerContent() {
+  const box = $("drawer-body");
+  box.innerHTML = `<div class="hint">加载中…</div>`;
+  try {
+    if (drawerTab === "projects") {
+      const r = await fetch("/api/projects");
+      const data = await r.json();
+      const list = data.projects || [];
+      box.innerHTML = "";
+      if (!list.length) {
+        box.innerHTML = `<div class="hint">暂无历史项目</div>`;
+        return;
+      }
+      list.forEach((p) => {
+        const item = document.createElement("div");
+        item.className = "history-item" + (p.id === currentProjectId ? " active-proj" : "");
+
+        if (p.cover_filename) {
+          const img = document.createElement("img");
+          img.className = "history-thumb";
+          img.src = `/results/${encodeURIComponent(p.cover_filename)}`;
+          img.alt = p.title;
+          item.appendChild(img);
+        }
+
+        const info = document.createElement("div");
+        info.className = "history-info";
+        const title = document.createElement("div");
+        title.className = "history-title";
+        title.textContent = p.title + (p.id === currentProjectId ? "（当前）" : "");
+        const meta = document.createElement("div");
+        meta.className = "history-meta";
+        meta.textContent = `${p.shot_count} 镜 · 已出图 ${p.ready_count} · ${p.width}×${p.height} · ${formatTime(p.updated_at)}`;
+        info.appendChild(title);
+        info.appendChild(meta);
+
+        const acts = document.createElement("div");
+        acts.className = "history-actions";
+
+        const loadBtn = document.createElement("button");
+        loadBtn.type = "button";
+        loadBtn.className = "btn-secondary btn-sm";
+        loadBtn.textContent = "打开";
+        loadBtn.onclick = async () => {
+          const pr = await fetch(`/api/projects/${encodeURIComponent(p.id)}`);
+          const pd = await pr.json();
+          if (pr.ok && pd.project) {
+            applyProjectRecord(pd.project);
+            await restoreProjectComposition(pd.project.id);
+            closeHistoryDrawer();
+          }
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-icon btn-danger-ghost";
+        delBtn.textContent = "🗑";
+        delBtn.title = "删除项目记录";
+        delBtn.onclick = async () => {
+          await fetch(`/api/projects/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+          if (p.id === currentProjectId) {
+            currentProjectId = null;
+          }
+          renderDrawerContent();
+        };
+
+        acts.appendChild(loadBtn);
+        acts.appendChild(delBtn);
+        item.appendChild(info);
+        item.appendChild(acts);
+        box.appendChild(item);
+      });
+    } else {
+      const r = await fetch("/api/compositions");
+      const data = await r.json();
+      const list = data.compositions || [];
+      box.innerHTML = "";
+      if (!list.length) {
+        box.innerHTML = `<div class="hint">暂无合成成片记录</div>`;
+        return;
+      }
+      list.forEach((c) => {
+        const item = document.createElement("div");
+        item.className = "history-item";
+
+        const info = document.createElement("div");
+        info.className = "history-info";
+        const title = document.createElement("div");
+        title.className = "history-title";
+        title.textContent = c.filename || `合成任务 ${c.id}`;
+        const meta = document.createElement("div");
+        meta.className = "history-meta";
+        const statusTxt = c.status === "done" ? (c.file_exists ? "可播放" : "文件已删除") : c.status;
+        meta.textContent = `${statusTxt} · ${c.width}×${c.height} · ${c.duration || 0}s · ${c.encoder || "-"} · ${formatTime(c.created_at)}`;
+        info.appendChild(title);
+        info.appendChild(meta);
+
+        const acts = document.createElement("div");
+        acts.className = "history-actions";
+
+        if (c.status === "done" && c.file_exists && c.video_url) {
+          const playBtn = document.createElement("button");
+          playBtn.type = "button";
+          playBtn.className = "btn-primary btn-sm";
+          playBtn.textContent = "▶ 播放";
+          playBtn.onclick = () => {
+            showComposedVideo(c);
+            closeHistoryDrawer();
+          };
+
+          const dl = document.createElement("a");
+          dl.className = "btn-secondary btn-sm";
+          dl.style.textDecoration = "none";
+          dl.href = c.video_url;
+          dl.download = c.filename;
+          dl.textContent = "⬇";
+          dl.title = "下载 MP4";
+
+          acts.appendChild(playBtn);
+          acts.appendChild(dl);
+        }
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-icon btn-danger-ghost";
+        delBtn.textContent = "🗑";
+        delBtn.title = "删除成片及磁盘文件";
+        delBtn.onclick = async () => {
+          await fetch(`/api/compositions/${encodeURIComponent(c.id)}`, { method: "DELETE" });
+          renderDrawerContent();
+        };
+        acts.appendChild(delBtn);
+
+        item.appendChild(info);
+        item.appendChild(acts);
+        box.appendChild(item);
+      });
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="shot-error-msg">加载失败：${e.message}</div>`;
+  }
 }
 
 // 事件绑定
-$("rand-seed").addEventListener("click", () => { $("seed").value = randomSeed(); });
-$("aspect-ratio").addEventListener("change", renderShots);
+$("project-title").addEventListener("input", scheduleSave);
+$("prefix").addEventListener("input", scheduleSave);
+$("negative").addEventListener("input", scheduleSave);
+$("seed").addEventListener("input", scheduleSave);
+$("rand-seed").addEventListener("click", () => {
+  $("seed").value = randomSeed();
+  scheduleSave();
+});
+$("aspect-ratio").addEventListener("change", () => {
+  renderShots();
+  scheduleSave();
+});
 $("add-shot-btn").addEventListener("click", () => {
   shots.push(createShot("", shots.length));
   renderShots();
+  scheduleSave();
 });
 $("save-chip-btn").addEventListener("click", () => {
   const name = $("custom-chip-name").value.trim();
@@ -1623,7 +2147,27 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
   btn.addEventListener("click", () => setMode(btn.dataset.mode));
 });
 
-initPresets();
+$("open-history-btn").addEventListener("click", () => openHistoryDrawer());
+$("close-history-btn").addEventListener("click", closeHistoryDrawer);
+$("history-drawer").addEventListener("click", (e) => {
+  if (e.target === $("history-drawer")) closeHistoryDrawer();
+});
+document.querySelectorAll(".drawer-tab").forEach((tabBtn) => {
+  tabBtn.addEventListener("click", () => openHistoryDrawer(tabBtn.dataset.tab));
+});
+$("new-blank-proj-btn").addEventListener("click", async () => {
+  currentProjectId = null;
+  $("project-title").value = "新建分镜项目";
+  $("prefix").value = "";
+  $("compose-panel").classList.remove("show");
+  $("compose-video-wrap").classList.remove("show");
+  shots = [createShot("", 0), createShot("", 1)];
+  renderShots();
+  await saveCurrentProjectNow();
+  closeHistoryDrawer();
+});
+
+initApp();
 refreshHealth();
 setInterval(refreshHealth, 8000);
 </script>
