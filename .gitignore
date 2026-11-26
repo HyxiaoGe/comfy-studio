@@ -1,5 +1,9 @@
-# Generated outputs (images, videos, concat lists)
+# Generated outputs (images, videos, concat lists, sqlite db)
 outputs/
+
+# Frontend dependencies & build artifacts
+frontend/node_modules/
+web/dist/
 
 # Python
 __pycache__/

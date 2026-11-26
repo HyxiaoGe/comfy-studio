@@ -47,8 +47,13 @@ from core.storage import StudioStorage  # noqa: E402
 
 COMFYUI = DEFAULT_SERVER
 WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
+WEB_DIST_DIR = os.path.join(BASE_DIR, "web", "dist")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
+
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
 COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
 DB_PATH = os.path.join(BASE_DIR, "outputs", "studio.db")
 CLIENT_ID = str(uuid.uuid4())
@@ -436,10 +441,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_frontend_asset(self, rel_path):
+        dist_root = os.path.realpath(WEB_DIST_DIR)
+        clean_rel = rel_path.lstrip("/")
+        if not clean_rel:
+            return False
+        candidate = os.path.realpath(os.path.join(dist_root, clean_rel))
+        if not candidate.startswith(dist_root + os.sep) or not os.path.isfile(candidate):
+            return False
+        ctype, _enc = mimetypes.guess_type(candidate)
+        if candidate.endswith((".js", ".mjs")):
+            ctype = "application/javascript; charset=utf-8"
+        elif candidate.endswith(".css"):
+            ctype = "text/css; charset=utf-8"
+        self._file(candidate, ctype or "application/octet-stream")
+        return True
+
     def do_GET(self):  # noqa: N802
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
-            self._file(WEB_INDEX_PATH, "text/html; charset=utf-8")
+            dist_index = os.path.join(WEB_DIST_DIR, "index.html")
+            target = dist_index if os.path.isfile(dist_index) else WEB_INDEX_PATH
+            self._file(target, "text/html; charset=utf-8")
         elif path == "/api/health":
             self._json(health())
         elif path == "/api/jobs":
@@ -497,6 +520,8 @@ class Handler(BaseHTTPRequestHandler):
                 ctype or "video/mp4",
                 support_range=True,
             )
+        elif self._serve_frontend_asset(path):
+            return
         else:
             self._json({"error": "没有这个地址"}, 404)
 
