@@ -6,11 +6,11 @@ import {
   Ban,
   BookmarkPlus,
   Camera,
-  ChevronDown,
+  Check,
   Copy,
   Dices,
+  FileText,
   LayoutList,
-  List,
   Loader2,
   Plus,
   Sparkles,
@@ -42,8 +42,6 @@ function ScriptShotCard({
   onMoveDown,
   onDuplicate,
   onDelete,
-  onCollapse,
-  collapsible = false,
 }) {
   const tags = splitPromptTags(shot.prompt);
   const charCount = (shot.narration || '').trim().length;
@@ -67,17 +65,6 @@ function ScriptShotCard({
         </div>
 
         <div className="flex items-center gap-1">
-          {collapsible ? (
-            <button
-              type="button"
-              onClick={onCollapse}
-              title="收起为紧凑行"
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer mr-1"
-            >
-              <ChevronDown className="w-3.5 h-3.5 rotate-180 text-blue-400" />
-              <span>收起</span>
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={onMoveUp}
@@ -152,105 +139,6 @@ function ScriptShotCard({
   );
 }
 
-function CompactShotRow({
-  shot,
-  index,
-  total,
-  onExpand,
-  onMoveUp,
-  onMoveDown,
-  onDelete,
-}) {
-  const tags = splitPromptTags(shot.prompt);
-  const hasCamera = tags.length > 0 && CAMERA_FRAMING_RE.test(tags[0]);
-  const promptPreview = (hasCamera ? tags.slice(1) : tags).join(', ') || shot.prompt || '待填写英文画面提示词';
-
-  return (
-    <div
-      id={`script-shot-${index}`}
-      onClick={onExpand}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onExpand();
-        }
-      }}
-      className="group rounded-xl border border-slate-800/90 hover:border-blue-500/45 bg-[#111827]/90 hover:bg-[#141d2e] px-3.5 py-2.5 space-y-1.5 cursor-pointer transition-colors"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 text-[11px] font-mono font-bold text-blue-300 tabular-nums shrink-0">
-            #{String(index + 1).padStart(2, '0')}
-          </span>
-          {hasCamera ? (
-            <span className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium text-cyan-200 shrink-0">
-              {tags[0]}
-            </span>
-          ) : null}
-          <span className="text-[10px] text-slate-500 tabular-nums shrink-0">
-            · {shot.duration || 4}s
-          </span>
-        </div>
-
-        <div
-          className="flex items-center gap-1 shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={onMoveUp}
-            disabled={index === 0}
-            title="上移"
-            className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-30 p-1 text-slate-400 hover:text-slate-100 cursor-pointer"
-          >
-            <ArrowUp className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={onMoveDown}
-            disabled={index === total - 1}
-            title="下移"
-            className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-30 p-1 text-slate-400 hover:text-slate-100 cursor-pointer"
-          >
-            <ArrowDown className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            title="删除此镜"
-            className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-rose-500/15 hover:border-rose-500/40 p-1 text-slate-400 hover:text-rose-300 cursor-pointer"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={onExpand}
-            title="展开编辑旁白与提示词"
-            className="inline-flex items-center gap-0.5 rounded-md border border-slate-700/80 bg-[#0c121e] group-hover:border-blue-500/40 group-hover:text-blue-200 px-2 py-0.5 text-[10px] font-medium text-slate-300 cursor-pointer"
-          >
-            <ChevronDown className="w-3 h-3" />
-            <span>展开编辑</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Full readable Chinese narration (no truncation) */}
-      <p className="text-[13.5px] leading-relaxed text-slate-100 whitespace-pre-wrap break-words">
-        {shot.narration?.trim() || <span className="text-slate-500 text-xs">暂无中文旁白（点击展开填写）</span>}
-      </p>
-
-      {/* Subtle 1-line visual prompt preview */}
-      <p className="text-[11px] text-slate-500 truncate">
-        <span className="text-slate-400 mr-1">画面:</span>
-        {promptPreview}
-        {tags.length > 0 ? <span className="text-slate-600 ml-1.5">({tags.length} 标签)</span> : null}
-      </p>
-    </div>
-  );
-}
-
 export default function StepOneScript({
   title,
   onTitleChange,
@@ -287,6 +175,7 @@ export default function StepOneScript({
   onAddShot,
   onChangeShotPrompt,
   onChangeShotNarration,
+  onChangeAllNarrations,
   onMoveShotUp,
   onMoveShotDown,
   onDuplicateShot,
@@ -294,18 +183,30 @@ export default function StepOneScript({
   onNextStep,
 }) {
   const [chipName, setChipName] = useState('');
-  const [viewMode, setViewMode] = useState(() => (shots.length >= 10 ? 'compact' : 'detail'));
-  const [expandedUid, setExpandedUid] = useState('');
+  const [viewMode, setViewMode] = useState(() => (shots.length >= 8 ? 'outline' : 'detail'));
+  const [outlineText, setOutlineText] = useState(() =>
+    shots.map((s) => (s.narration || '').replace(/\n+/g, ' ').trim()).join('\n')
+  );
+  const [copiedOutline, setCopiedOutline] = useState(false);
   const manualViewRef = useRef(false);
+  const outlineEditingRef = useRef(false);
+
+  const shotsOutlineKey = shots.map((s) => `${s.uid}:${s.narration || ''}`).join('\u0001');
 
   useEffect(() => {
     if (!manualViewRef.current) {
-      setViewMode(shots.length >= 10 ? 'compact' : 'detail');
+      setViewMode(shots.length >= 8 ? 'outline' : 'detail');
     }
   }, [shots.length]);
 
+  useEffect(() => {
+    if (!outlineEditingRef.current) {
+      setOutlineText(shots.map((s) => (s.narration || '').replace(/\n+/g, ' ').trim()).join('\n'));
+    }
+  }, [shotsOutlineKey, viewMode]);
+
   const jumpChunks = [];
-  if (shots.length > 8) {
+  if (viewMode === 'detail' && shots.length > 8) {
     for (let i = 0; i < shots.length; i += 5) {
       jumpChunks.push({
         startIdx: i,
@@ -314,6 +215,29 @@ export default function StepOneScript({
     }
   }
 
+  const outlineLines = outlineText.split('\n');
+  const totalChars = outlineText.replace(/\s+/g, '').length;
+
+  const handleOutlineChange = (val) => {
+    setOutlineText(val);
+    const lines = val.split('\n');
+    const cleanLines =
+      lines.length === shots.length ? lines : lines.filter((l) => l.trim().length > 0);
+    onChangeAllNarrations(cleanLines);
+  };
+
+  const handleCopyOutline = async () => {
+    const clean = outlineText.trim();
+    if (!clean) return;
+    try {
+      await navigator.clipboard.writeText(clean);
+      setCopiedOutline(true);
+      setTimeout(() => setCopiedOutline(false), 1400);
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSaveChip = () => {
     const clean = chipName.trim();
     if (!clean || !prefix.trim()) return;
@@ -321,10 +245,22 @@ export default function StepOneScript({
     setChipName('');
   };
 
+  const isOutline = viewMode === 'outline';
+
   return (
-    <main className="max-w-[1440px] mx-auto px-4 lg:px-6 py-5 grid grid-cols-1 lg:grid-cols-[410px_minmax(0,1fr)] gap-5 items-start">
-      {/* Left: AI Script Generator + Visual DNA (sticky sidebar) */}
-      <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-84px)] lg:overflow-y-auto">
+    <main
+      className={`max-w-[1440px] mx-auto px-4 lg:px-6 py-5 grid grid-cols-1 lg:grid-cols-[410px_minmax(0,1fr)] gap-5 ${
+        isOutline ? 'items-stretch' : 'items-start'
+      }`}
+    >
+      {/* Left: AI Script Generator + Visual DNA */}
+      <aside
+        className={`rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 ${
+          isOutline
+            ? 'h-full'
+            : 'lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-84px)] lg:overflow-y-auto'
+        }`}
+      >
         {/* Project Title */}
         <div>
           <label htmlFor="step1-title" className="block text-xs font-semibold text-slate-300 mb-1.5">
@@ -551,9 +487,13 @@ export default function StepOneScript({
         </Collapsible>
       </aside>
 
-      {/* Right: Sticky Toolbar + Script Outline / Detail Cards */}
-      <section className="space-y-3 min-w-0">
-        <div className="sticky top-[64px] z-20 rounded-2xl border border-slate-800/90 bg-[#111827]/95 backdrop-blur-xl px-4 py-3 space-y-2.5 shadow-xl shadow-black/40">
+      {/* Right: Sticky Toolbar + Full Narration Textbox OR Detail Cards */}
+      <section className={`min-w-0 flex flex-col gap-3 ${isOutline ? 'h-full' : ''}`}>
+        <div
+          className={`${
+            isOutline ? '' : 'sticky top-[64px] z-20'
+          } rounded-2xl border border-slate-800/90 bg-[#111827]/95 backdrop-blur-xl px-4 py-3 space-y-2.5 shadow-xl shadow-black/40 shrink-0`}
+        >
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <div>
@@ -561,8 +501,8 @@ export default function StepOneScript({
                   分镜文字脚本（共 {shots.length} 镜）
                 </h2>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {viewMode === 'compact'
-                    ? '紧凑大纲模式 · 点击任意一镜展开详细编辑'
+                  {isOutline
+                    ? '旁白全文视图 · 在一个文本框里完整通读与微调故事旁白'
                     : '确认各镜中文旁白与英文画面描述后进入 Step 2'}
                 </p>
               </div>
@@ -575,8 +515,8 @@ export default function StepOneScript({
                   setViewMode(v);
                 }}
                 options={[
-                  { value: 'compact', label: '紧凑大纲', icon: List },
-                  { value: 'detail', label: '详情卡片', icon: LayoutList },
+                  { value: 'outline', label: '旁白全文', icon: FileText },
+                  { value: 'detail', label: '逐镜详情', icon: LayoutList },
                 ]}
               />
             </div>
@@ -643,27 +583,73 @@ export default function StepOneScript({
           ) : null}
         </div>
 
-        <div className={viewMode === 'compact' ? 'space-y-1.5' : 'space-y-3'}>
-          {shots.map((shot, idx) =>
-            viewMode === 'compact' && expandedUid !== shot.uid ? (
-              <CompactShotRow
-                key={shot.uid}
-                shot={shot}
-                index={idx}
-                total={shots.length}
-                onExpand={() => setExpandedUid(shot.uid)}
-                onMoveUp={() => onMoveShotUp(idx)}
-                onMoveDown={() => onMoveShotDown(idx)}
-                onDelete={() => onDeleteShot(shot.uid)}
-              />
-            ) : (
+        {isOutline ? (
+          <div className="flex-1 flex flex-col rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 gap-2.5 shadow-xl shadow-black/30">
+            <div className="flex items-center justify-between gap-2 shrink-0">
+              <span className="text-xs font-semibold text-indigo-300">
+                完整旁白文稿（每行对应第 1～{shots.length} 镜）
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 tabular-nums">
+                  {totalChars} 字 · {outlineLines.length} 行
+                </span>
+                {outlineText.trim() ? (
+                  <button
+                    type="button"
+                    onClick={handleCopyOutline}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer transition-colors"
+                  >
+                    {copiedOutline ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span className="text-emerald-300">已复制</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>复制全文</span>
+                      </>
+                    )}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <textarea
+              value={outlineText}
+              onFocus={() => {
+                outlineEditingRef.current = true;
+              }}
+              onBlur={() => {
+                outlineEditingRef.current = false;
+                setOutlineText(
+                  shots.map((s) => (s.narration || '').replace(/\n+/g, ' ').trim()).join('\n')
+                );
+              }}
+              onChange={(e) => handleOutlineChange(e.target.value)}
+              placeholder="每行代表一个镜头的中文旁白，可直接完整阅读或修改…"
+              className="flex-1 w-full min-h-[340px] rounded-xl border border-indigo-500/25 focus:border-indigo-400 bg-[#090d14]/90 px-4 py-3.5 text-[14px] leading-[1.95] text-slate-100 placeholder-slate-500 focus:outline-none resize-none"
+            />
+
+            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 shrink-0 flex-wrap">
+              <span>
+                无需来回翻滚，直接通读整篇旁白；如需逐镜微调英文生图提示词，点上方「逐镜详情」。
+              </span>
+              {outlineLines.length !== shots.length ? (
+                <span className="text-amber-300 font-medium tabular-nums">
+                  当前 {outlineLines.length} 行（分镜共 {shots.length} 镜，将按非空行顺序对齐）
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {shots.map((shot, idx) => (
               <ScriptShotCard
                 key={shot.uid}
                 shot={shot}
                 index={idx}
                 total={shots.length}
-                collapsible={viewMode === 'compact'}
-                onCollapse={() => setExpandedUid('')}
                 onChangeNarration={(val) => onChangeShotNarration(shot.uid, val)}
                 onChangePrompt={(val) => onChangeShotPrompt(shot.uid, val)}
                 onMoveUp={() => onMoveShotUp(idx)}
@@ -671,9 +657,9 @@ export default function StepOneScript({
                 onDuplicate={() => onDuplicateShot(idx)}
                 onDelete={() => onDeleteShot(shot.uid)}
               />
-            )
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );

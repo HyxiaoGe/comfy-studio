@@ -1209,6 +1209,17 @@ export default function App() {
     scheduleSave();
   };
 
+  const updateAllNarrations = (lines) => {
+    setShots((prev) =>
+      prev.map((s, idx) => {
+        const nextText = typeof lines[idx] === 'string' ? lines[idx].trim() : s.narration;
+        if (nextText === (s.narration || '')) return s;
+        return { ...s, narration: nextText, ttsFilename: '', ttsDuration: 0 };
+      })
+    );
+    scheduleSave();
+  };
+
   const updateShotMotion = (uid, val) => {
     setShots((prev) => prev.map((s) => (s.uid === uid ? { ...s, motion: val } : s)));
     scheduleSave();
@@ -1395,6 +1406,7 @@ export default function App() {
               onAddShot={addShot}
               onChangeShotPrompt={updateShotPrompt}
               onChangeShotNarration={updateShotNarration}
+              onChangeAllNarrations={updateAllNarrations}
               onMoveShotUp={moveShotUp}
               onMoveShotDown={moveShotDown}
               onDuplicateShot={(idx) => duplicateShot(idx, shots[idx])}
