@@ -1,6 +1,39 @@
 export const CUSTOM_CHIPS_KEY = 'comfy_studio_custom_chips_v1';
 export const ACTIVE_BATCH_KEY = 'comfy_studio_active_batch_v1';
 
+export const HOME_STYLE_OPTIONS = [
+  {
+    id: 'watercolor_book',
+    label: '温暖水彩绘本（纯画风）',
+    prefix:
+      "Soft watercolor children's picture book illustration, hand-painted paper texture, warm pastel colors, gentle lighting, no text",
+  },
+  {
+    id: 'flat_vector',
+    label: '扁平绘本插画（纯画风）',
+    prefix:
+      "Flat vector children's book illustration style, clean simple shapes, warm amber and soft teal palette, no text",
+  },
+  {
+    id: 'ghibli_anime',
+    label: '治愈日系动画（纯画风）',
+    prefix:
+      'Anime background art style, hand-painted cel shading, lush natural scenery, warm golden hour sunlight, nostalgic healing atmosphere, no text',
+  },
+  {
+    id: 'crayon_storybook',
+    label: '蜡笔童话质感（纯画风）',
+    prefix:
+      'Crayon and colored pencil texture illustration, whimsical storybook art, soft cream background, cozy organic lines, no text',
+  },
+  {
+    id: 'editorial_science',
+    label: '科普扁平矢量（纯画风）',
+    prefix:
+      'Modern flat vector editorial illustration, clean geometric shapes, rich deep navy and vibrant coral color palette, soft gradients, educational infographic art style, no text',
+  },
+];
+
 export const STYLE_CHIPS = [
   {
     id: 'flat_cat',

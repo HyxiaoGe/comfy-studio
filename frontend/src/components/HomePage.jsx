@@ -12,9 +12,9 @@ import {
 } from 'lucide-react';
 import {
   ASPECT_RATIOS,
+  HOME_STYLE_OPTIONS,
   IDEA_SUGGESTIONS,
   NARRATION_STYLES,
-  STYLE_CHIPS,
 } from '../data/presets';
 import AutoGrowTextarea from './ui/AutoGrowTextarea';
 import SelectDropdown from './ui/SelectDropdown';
@@ -40,8 +40,8 @@ export default function HomePage({
   onAspectChange,
   narrationStyle,
   onNarrationStyleChange,
-  prefix,
-  onPrefixChange,
+  visualStyle,
+  onVisualStyleChange,
   llmConfigured,
   generatingStoryboard,
   onStartWithAi,
@@ -59,7 +59,7 @@ export default function HomePage({
 
   const styleOptions = [
     { value: '', label: '由 AI 根据主题自动匹配画风' },
-    ...STYLE_CHIPS.map((c) => ({ value: c.prefix, label: c.label })),
+    ...HOME_STYLE_OPTIONS.map((c) => ({ value: c.prefix, label: c.label })),
   ];
 
   return (
@@ -162,8 +162,8 @@ export default function HomePage({
               <div className="text-xs font-semibold text-slate-300 mb-1.5">参考画风（可选）</div>
               <SelectDropdown
                 size="sm"
-                value={styleOptions.some((o) => o.value === prefix) ? prefix : ''}
-                onChange={onPrefixChange}
+                value={styleOptions.some((o) => o.value === visualStyle) ? visualStyle : ''}
+                onChange={onVisualStyleChange}
                 options={styleOptions}
               />
             </div>

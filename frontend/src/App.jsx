@@ -86,6 +86,7 @@ export default function App() {
   const [storyPlanMode, setStoryPlanMode] = useState('duration'); // duration | shots
   const [aiTargetDuration, setAiTargetDuration] = useState(30);
   const [aiShotCount, setAiShotCount] = useState(6);
+  const [homeVisualStyle, setHomeVisualStyle] = useState('');
   const [generatingStoryboard, setGeneratingStoryboard] = useState(false);
   const [prefix, setPrefix] = useState('');
   const [negativePrompt, setNegativePrompt] = useState(DEFAULT_NEGATIVE_PROMPT);
@@ -310,7 +311,7 @@ export default function App() {
     setSaveState('saved');
   }, []);
 
-  const handleGenerateStoryboard = useCallback(async () => {
+  const handleGenerateStoryboard = useCallback(async ({ source = 'step1' } = {}) => {
     const cleanIdea = storyIdea.trim();
     if (!cleanIdea) {
       pushToast('请先输入故事创意或主题', 'error');
@@ -337,7 +338,7 @@ export default function App() {
           idea: cleanIdea,
           shot_count: clampedShots,
           target_duration: storyPlanMode === 'duration' ? clampedDuration : 0,
-          visual_style: stateRef.current.prefix || '',
+          visual_style: source === 'home' ? homeVisualStyle : '',
           narration_style: narrationStyle,
         }),
       });
@@ -389,6 +390,7 @@ export default function App() {
     aiTargetDuration,
     buildShot,
     fetchLists,
+    homeVisualStyle,
     narrationStyle,
     pushToast,
     saveProjectNow,
@@ -1287,17 +1289,14 @@ export default function App() {
           aiShotCount={aiShotCount}
           onAiShotCountChange={setAiShotCount}
           aspectValue={aspectValue}
-          onAspectChange={(v) => {
-            setAspectValue(v);
-            scheduleSave();
-          }}
+          onAspectChange={setAspectValue}
           narrationStyle={narrationStyle}
           onNarrationStyleChange={setNarrationStyle}
-          prefix={prefix}
-          onPrefixChange={setPrefix}
+          visualStyle={homeVisualStyle}
+          onVisualStyleChange={setHomeVisualStyle}
           llmConfigured={Boolean(health?.llm_configured)}
           generatingStoryboard={generatingStoryboard}
-          onStartWithAi={handleGenerateStoryboard}
+          onStartWithAi={() => handleGenerateStoryboard({ source: 'home' })}
           onCreateBlank={createBlankProject}
           projects={historyProjects}
           compositions={historyComps}
@@ -1347,7 +1346,7 @@ export default function App() {
               aiShotCount={aiShotCount}
               onAiShotCountChange={setAiShotCount}
               generatingStoryboard={generatingStoryboard}
-              onGenerateStoryboard={handleGenerateStoryboard}
+              onGenerateStoryboard={() => handleGenerateStoryboard({ source: 'step1' })}
               llmConfigured={Boolean(health?.llm_configured)}
               prefix={prefix}
               onPrefixChange={(v) => {
