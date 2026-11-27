@@ -630,13 +630,25 @@ export default function App() {
     }
   };
 
-  const handleGenerateTts = async (targetUid = null) => {
-    const candidates = shots.filter(
-      (s) => (!targetUid || s.uid === targetUid) && (s.narration || '').trim().length > 0
-    );
+  const handleGenerateTts = async (arg = null) => {
+    const opts =
+      typeof arg === 'object' && arg !== null && !arg.nativeEvent
+        ? arg
+        : { targetUid: typeof arg === 'string' ? arg : null };
+    const { targetUid = null, onlyMissing = false, silentNoCandidate = false } = opts;
+
+    const curShots = stateRef.current.shots || [];
+    const candidates = curShots.filter((s) => {
+      if (targetUid && s.uid !== targetUid) return false;
+      if (!(s.narration || '').trim()) return false;
+      if (onlyMissing && s.ttsFilename) return false;
+      return true;
+    });
     if (!candidates.length) {
-      pushToast('请先填写或生成中文旁白文案', 'error');
-      return;
+      if (!silentNoCandidate) {
+        pushToast(onlyMissing ? '所有旁白均已完成配音' : '请先填写或生成中文旁白文案', 'info');
+      }
+      return { ok: true, count: 0, shots: curShots };
     }
     if (targetUid) {
       setTtsBusyUid(targetUid);
@@ -655,8 +667,8 @@ export default function App() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       const byUid = Object.fromEntries((data.results || []).map((x) => [x.uid, x]));
-      setShots((prev) =>
-        prev.map((s) => {
+      const applyTtsResults = (list) =>
+        list.map((s) => {
           const hit = byUid[s.uid];
           if (!hit) return s;
           return {
@@ -664,12 +676,16 @@ export default function App() {
             ttsFilename: hit.filename,
             ttsDuration: hit.duration || 0,
           };
-        })
-      );
-      setTimeout(() => saveProjectNow(), 50);
+        });
+      const mergedShots = applyTtsResults(stateRef.current.shots || []);
+      stateRef.current = { ...stateRef.current, shots: mergedShots };
+      setShots(applyTtsResults);
+      await saveProjectNow({ ...stateRef.current, shots: mergedShots });
       pushToast(`已完成 ${data.results?.length || 0} 条语音合成 (${ttsVoice})`, 'success');
+      return { ok: true, count: data.results?.length || 0, shots: mergedShots };
     } catch (e) {
       pushToast(e.message, 'error');
+      return { ok: false, count: 0, shots: stateRef.current.shots || [], error: e.message };
     } finally {
       setGeneratingTts(false);
       setTtsBusyUid('');
@@ -815,10 +831,13 @@ export default function App() {
     }
   };
 
-  const handleRunBatch = async () => {
-    const activeShots = shots.filter((s) => s.prompt.trim().length > 0);
+  const handleRunBatch = async ({ onlyMissing = false, overrideShots = null } = {}) => {
+    const curShots = overrideShots || stateRef.current.shots || [];
+    const activeShots = curShots.filter(
+      (s) => s.prompt.trim().length > 0 && (!onlyMissing || !s.filename)
+    );
     if (!activeShots.length) {
-      pushToast('请至少填写一个分镜提示词', 'error');
+      pushToast(onlyMissing ? '所有分镜图均已就绪' : '请至少填写一个分镜提示词', 'info');
       return;
     }
 
@@ -827,7 +846,9 @@ export default function App() {
       nextSeed = randomSeed();
       setSeed(nextSeed);
     }
-    const saved = await saveProjectNow({ ...stateRef.current, seed: nextSeed });
+    const nextState = { ...stateRef.current, shots: curShots, seed: nextSeed };
+    stateRef.current = nextState;
+    const saved = await saveProjectNow(nextState);
     const pid = saved?.id || projectId || '';
     const submittedUids = activeShots.map((s) => s.uid);
 
@@ -870,6 +891,29 @@ export default function App() {
       );
       setGpuProgress({ text: '提交失败', done: 0, total: 1, busy: false });
       pushToast(`提交失败：${e.message}`, 'error');
+    }
+  };
+
+  const handleProduceAll = async ({ onlyMissingImages = true } = {}) => {
+    let latestShots = stateRef.current.shots || [];
+    const missingTts = latestShots.filter((s) => (s.narration || '').trim() && !s.ttsFilename);
+    if (missingTts.length > 0) {
+      if (!health?.tts_configured) {
+        pushToast('未配置 TTS Key，已跳过自动配音并开始生成分镜图', 'info');
+      } else {
+        const ttsRes = await handleGenerateTts({ onlyMissing: true, silentNoCandidate: true });
+        latestShots = ttsRes.shots || latestShots;
+        if (!ttsRes.ok) {
+          pushToast('配音合成失败，将继续提交分镜图任务（稍后可单独补配）', 'info');
+        }
+      }
+    }
+
+    const needImages = latestShots.some(
+      (s) => s.prompt.trim().length > 0 && (!onlyMissingImages || !s.filename)
+    );
+    if (needImages) {
+      await handleRunBatch({ onlyMissing: onlyMissingImages, overrideShots: latestShots });
     }
   };
 
@@ -1428,9 +1472,12 @@ export default function App() {
               generatingTts={generatingTts}
               ttsBusyUid={ttsBusyUid}
               onGenerateTtsAll={() => handleGenerateTts(null)}
+              onGenerateTtsMissing={() => handleGenerateTts({ onlyMissing: true })}
               onGenerateTtsSingle={(uid) => handleGenerateTts(uid)}
               batchRunning={batchRunning}
-              onRunBatch={handleRunBatch}
+              gpuProgress={gpuProgress}
+              onProduceMissing={() => handleProduceAll({ onlyMissingImages: true })}
+              onProduceAll={() => handleProduceAll({ onlyMissingImages: false })}
               readyCount={readyCount}
               ttsCount={ttsCount}
               onAddShot={addShot}

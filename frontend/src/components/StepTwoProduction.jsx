@@ -1,10 +1,13 @@
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
   LayoutGrid,
   LayoutList,
   Loader2,
+  Mic,
   Plus,
+  RefreshCw,
   Sparkles,
   Volume2,
 } from 'lucide-react';
@@ -27,9 +30,12 @@ export default function StepTwoProduction({
   generatingTts,
   ttsBusyUid,
   onGenerateTtsAll,
+  onGenerateTtsMissing,
   onGenerateTtsSingle,
   batchRunning,
-  onRunBatch,
+  gpuProgress,
+  onProduceMissing,
+  onProduceAll,
   readyCount,
   ttsCount,
   onAddShot,
@@ -47,63 +53,136 @@ export default function StepTwoProduction({
   onPrevStep,
   onNextStep,
 }) {
+  const promptShots = shots.filter((s) => (s.prompt || '').trim().length > 0);
+  const narrShots = shots.filter((s) => (s.narration || '').trim().length > 0);
+  const missingTtsCount = narrShots.filter((s) => !s.ttsFilename).length;
+  const missingImageCount = promptShots.filter((s) => !s.filename).length;
+  const allReady = shots.length > 0 && missingImageCount === 0 && (missingTtsCount === 0 || !ttsConfigured);
+  const isProducing = generatingTts || batchRunning;
+  const providerLabel = ttsProvider === 'doubao' ? '豆包' : '百炼';
+
+  const primaryDisabled =
+    mode !== 'storyboard' || isProducing || (promptShots.length === 0 && narrShots.length === 0);
+
+  let primaryLabel = narrShots.length > 0 && ttsConfigured ? '一键生成配音与分镜图' : '批量生成分镜图';
+  let primaryTitle = ttsConfigured
+    ? `自动使用${providerLabel}补全缺失配音，并生成分镜图`
+    : '未配置 TTS Key，将直接生成分镜图';
+  let primaryHandler = onProduceMissing;
+
+  if (generatingTts) {
+    primaryLabel = '正在合成配音…';
+  } else if (batchRunning) {
+    primaryLabel = `${gpuProgress?.text || '正在绘制分镜图'} (${readyCount}/${shots.length})`;
+  } else if (missingImageCount > 0 && readyCount > 0) {
+    primaryLabel =
+      missingTtsCount > 0 && ttsConfigured
+        ? `补全配音与缺图 (${missingImageCount} 镜)`
+        : `一键补全缺图 (${missingImageCount} 镜)`;
+    primaryTitle = '仅生成缺失配音与尚未出图的镜头，不重画已有图片';
+    primaryHandler = onProduceMissing;
+  } else if (missingImageCount === 0 && promptShots.length > 0 && missingTtsCount > 0 && ttsConfigured) {
+    primaryLabel = `一键补全缺失配音 (${missingTtsCount} 条)`;
+    primaryTitle = `分镜图已全部就绪，补全剩余 ${missingTtsCount} 条旁白配音`;
+    primaryHandler = onGenerateTtsMissing;
+  }
+
   return (
     <main className="max-w-[1560px] mx-auto px-4 lg:px-6 py-5 space-y-4">
-      {/* Guided Production Action Bar */}
-      <div className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-3.5 shadow-lg shadow-black/25 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* ① Batch TTS */}
-          <div className="flex items-center gap-2 rounded-xl border border-cyan-500/25 bg-cyan-500/5 px-2.5 py-1.5">
-            <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-bold text-cyan-200">
-              ① 先配音
-            </span>
-            <SelectDropdown
-              size="sm"
-              className="w-[156px]"
-              value={ttsVoice}
-              onChange={onTtsVoiceChange}
-              options={ttsVoices?.length ? ttsVoices : DEFAULT_TTS_VOICES}
-            />
+      {/* Sticky Unified Production Action Bar */}
+      <div className="sticky top-[64px] z-30 rounded-2xl border border-slate-800/90 bg-[#111827]/95 backdrop-blur-md p-3.5 shadow-lg shadow-black/30 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Voice selector + Unified Produce CTA */}
+          <div className="flex items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/5 px-2.5 py-1.5 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <Mic className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <SelectDropdown
+                size="sm"
+                className="w-[152px]"
+                value={ttsVoice}
+                onChange={onTtsVoiceChange}
+                options={ttsVoices?.length ? ttsVoices : DEFAULT_TTS_VOICES}
+              />
+            </div>
+
+            {allReady && !isProducing ? (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/35 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-200">
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>配音与分镜图已就绪</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={onProduceAll}
+                  disabled={primaryDisabled}
+                  title="重新按当前画风与音色全量重绘所有分镜图"
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-45 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
+                  <span>全量重绘</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={primaryHandler}
+                disabled={primaryDisabled}
+                title={primaryTitle}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-45 disabled:cursor-not-allowed px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-950/50 transition-all cursor-pointer"
+              >
+                {isProducing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                <span>{primaryLabel}</span>
+              </button>
+            )}
+
+            {/* Standalone Voice Re-dub (handy when swapping voice without redrawing images) */}
             <button
               type="button"
               onClick={onGenerateTtsAll}
-              disabled={generatingTts || !ttsConfigured || shots.length === 0}
-              title={ttsConfigured ? `使用 ${ttsProvider === 'doubao' ? '豆包' : '百炼'} 合成配音` : '未配置 TTS Key'}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/45 bg-cyan-600/25 hover:bg-cyan-600/40 disabled:opacity-45 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-semibold text-cyan-100 transition-colors cursor-pointer"
+              disabled={isProducing || !ttsConfigured || narrShots.length === 0}
+              title={
+                ttsConfigured
+                  ? `仅使用 ${providerLabel} (${ttsVoice}) 重新合成全部旁白配音，不重绘图片`
+                  : '未配置 TTS Key'
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition-colors cursor-pointer"
             >
-              {generatingTts ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Volume2 className="w-3.5 h-3.5" />
-              )}
-              <span>{generatingTts ? '配音中…' : `批量配音 (${ttsCount}/${shots.length})`}</span>
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>{ttsCount > 0 ? '重配全部语音' : '仅配音'}</span>
             </button>
+
+            {readyCount > 0 && missingImageCount > 0 && !isProducing ? (
+              <button
+                type="button"
+                onClick={onProduceAll}
+                disabled={primaryDisabled}
+                title="按当前画风与提示词重绘全部镜头"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-40 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3 text-slate-400" />
+                <span>全量重绘</span>
+              </button>
+            ) : null}
           </div>
 
-          {/* ② Batch ComfyUI Render */}
-          <div className="flex items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/5 px-2.5 py-1.5">
-            <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-bold text-blue-200">
-              ② 再出图
+          <span className="hidden xl:inline-flex items-center gap-2 text-xs text-slate-400 tabular-nums pl-1">
+            <span>
+              配音 <strong className="text-cyan-300 font-semibold">{ttsCount}</strong>/
+              {narrShots.length || shots.length}
             </span>
-            <button
-              type="button"
-              onClick={onRunBatch}
-              disabled={mode !== 'storyboard' || batchRunning || shots.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-45 disabled:cursor-not-allowed px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-950/50 transition-colors cursor-pointer"
-            >
-              {batchRunning ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5" />
-              )}
-              <span>
-                {batchRunning ? '绘制中…' : `批量生成分镜图 (${readyCount}/${shots.length})`}
-              </span>
-            </button>
-          </div>
-
-          <span className="hidden xl:inline text-xs text-slate-500 pl-1">
-            画幅 {aspect.width}×{aspect.height}
+            <span className="text-slate-700">·</span>
+            <span>
+              出图 <strong className="text-blue-300 font-semibold">{readyCount}</strong>/
+              {shots.length}
+            </span>
+            <span className="text-slate-700">·</span>
+            <span className="text-slate-500">
+              {aspect.width}×{aspect.height}
+            </span>
           </span>
         </div>
 
@@ -123,7 +202,8 @@ export default function StepTwoProduction({
           <button
             type="button"
             onClick={onAddShot}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+            disabled={isProducing}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-40 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 text-blue-400" />
             <span>加镜</span>
