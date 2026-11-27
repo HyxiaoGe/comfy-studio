@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -8,10 +8,13 @@ import {
   Image as ImageIcon,
   Loader2,
   Maximize2,
+  Mic,
   MoveLeft,
   MoveRight,
   Pause,
+  Play,
   RefreshCw,
+  Square,
   Trash2,
   Upload,
   ZoomIn,
@@ -44,6 +47,7 @@ export default function ShotCard({
   aspect,
   mode,
   batchRunning,
+  ttsBusy,
   onChangePrompt,
   onChangeNarration,
   onChangeMotion,
@@ -53,15 +57,46 @@ export default function ShotCard({
   onDuplicate,
   onDelete,
   onReroll,
+  onGenerateTts,
   onUploadImage,
   onPreview,
 }) {
   const imgInputRef = useRef(null);
+  const audioRef = useRef(null);
+  const [playingAudio, setPlayingAudio] = useState(false);
+
   const isBusy = shot.status === 'queued' || shot.status === 'running';
   const statusInfo = STATUS_STYLE[shot.status] || STATUS_STYLE.idle;
   const imgSrc = shot.filename
     ? `/results/${encodeURIComponent(shot.filename)}?v=${shot.imgVer || 1}`
     : '';
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  const togglePlayTts = () => {
+    if (!shot.ttsFilename) return;
+    if (playingAudio && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setPlayingAudio(false);
+      return;
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    const audio = new Audio(`/tts/${encodeURIComponent(shot.ttsFilename)}`);
+    audioRef.current = audio;
+    audio.onended = () => setPlayingAudio(false);
+    audio.onerror = () => setPlayingAudio(false);
+    audio.play().then(() => setPlayingAudio(true)).catch(() => setPlayingAudio(false));
+  };
 
   return (
     <article className="group rounded-2xl border border-slate-800/90 hover:border-slate-700 bg-[#111827]/90 p-3.5 grid grid-cols-1 md:grid-cols-[248px_minmax(0,1fr)] gap-4 transition-colors shadow-md shadow-black/25">
@@ -208,16 +243,40 @@ export default function ShotCard({
           className="w-full rounded-xl border border-slate-800 bg-[#0c121e] px-3 py-2 text-[13px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition resize-y leading-relaxed"
         />
 
-        {/* Chinese Narration / Subtitle line */}
-        <div className="flex items-center gap-2 rounded-lg border border-slate-800/90 bg-[#090d14] px-2.5 py-1.5 focus-within:border-indigo-500/70 transition-colors">
-          <Captions className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+        {/* Chinese Narration / Subtitle + TTS Bar */}
+        <div className="flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-950/20 px-2.5 py-1.5 focus-within:border-indigo-400 transition-colors">
+          <span className="inline-flex items-center gap-1 rounded-md bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-300 shrink-0">
+            <Captions className="w-3 h-3" />
+            <span>旁白</span>
+          </span>
           <input
             type="text"
             value={shot.narration || ''}
             onChange={(e) => onChangeNarration(e.target.value)}
-            placeholder="中文解说词 / 底部字幕（可手动填写或由上方 DeepSeek 一键生成）"
-            className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
+            placeholder="中文解说词 / 底部字幕（可由左侧 DeepSeek 生成或直接手写）"
+            className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none"
           />
+          {shot.ttsFilename ? (
+            <button
+              type="button"
+              onClick={togglePlayTts}
+              title="试听此镜配音"
+              className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 hover:bg-cyan-500/30 px-2 py-0.5 text-[11px] font-medium text-cyan-200 shrink-0 cursor-pointer"
+            >
+              {playingAudio ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+              <span>{shot.ttsDuration ? `${shot.ttsDuration}s` : '试听'}</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onGenerateTts}
+            disabled={!shot.narration?.trim() || ttsBusy}
+            title={shot.ttsFilename ? '重新生成此镜配音' : '为本镜生成 AI 配音'}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2 py-0.5 text-[11px] font-medium text-slate-200 shrink-0 cursor-pointer"
+          >
+            {ttsBusy ? <Loader2 className="w-3 h-3 animate-spin text-cyan-400" /> : <Mic className="w-3 h-3 text-cyan-400" />}
+            <span>{shot.ttsFilename ? '重配' : '配音'}</span>
+          </button>
         </div>
 
         {shot.error ? (

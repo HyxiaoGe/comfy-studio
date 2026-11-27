@@ -47,11 +47,15 @@ export default function App() {
   const [customChips, setCustomChips] = useState(() => loadCustomChips());
   const [saveState, setSaveState] = useState('saved');
 
-  // DeepSeek narration & compose audio/subtitle options
+  // DeepSeek narration, TTS & compose audio/subtitle options
   const [narrationStyle, setNarrationStyle] = useState('绘本故事');
   const [generatingNarration, setGeneratingNarration] = useState(false);
+  const [ttsVoice, setTtsVoice] = useState('Cherry');
+  const [generatingTts, setGeneratingTts] = useState(false);
+  const [ttsBusyUid, setTtsBusyUid] = useState('');
   const [transitionType, setTransitionType] = useState('fade');
   const [burnSubtitles, setBurnSubtitles] = useState(true);
+  const [autoAlignTts, setAutoAlignTts] = useState(true);
   const [audioFiles, setAudioFiles] = useState([]);
   const [bgmFilename, setBgmFilename] = useState('');
   const [bgmVolume, setBgmVolume] = useState(0.32);
@@ -102,6 +106,8 @@ export default function App() {
       uid: nextUid(),
       prompt,
       narration,
+      ttsFilename: '',
+      ttsDuration: 0,
       motion: MOTION_CYCLE[idx % MOTION_CYCLE.length],
       duration: 4,
       filename: '',
@@ -131,6 +137,8 @@ export default function App() {
         uid: s.uid,
         prompt: s.prompt,
         narration: s.narration || '',
+        ttsFilename: s.ttsFilename || '',
+        ttsDuration: s.ttsDuration || 0,
         motion: s.motion,
         duration: s.duration,
         filename: s.filename || '',
@@ -228,6 +236,8 @@ export default function App() {
         uid: s.uid || `shot_${uidRef.current++}`,
         prompt: s.prompt || '',
         narration: s.narration || '',
+        ttsFilename: s.ttsFilename || '',
+        ttsDuration: Number(s.ttsDuration) || 0,
         motion: s.motion || MOTION_CYCLE[idx % MOTION_CYCLE.length],
         duration: Number(s.duration) || 4,
         filename: s.filename || '',
@@ -475,6 +485,8 @@ export default function App() {
         prev.map((s, idx) => ({
           ...s,
           narration: typeof arr[idx] === 'string' ? arr[idx] : s.narration,
+          ttsFilename: typeof arr[idx] === 'string' ? '' : s.ttsFilename,
+          ttsDuration: typeof arr[idx] === 'string' ? 0 : s.ttsDuration,
         }))
       );
       setTimeout(() => saveProjectNow(), 50);
@@ -483,6 +495,52 @@ export default function App() {
       pushToast(e.message, 'error');
     } finally {
       setGeneratingNarration(false);
+    }
+  };
+
+  const handleGenerateTts = async (targetUid = null) => {
+    const candidates = shots.filter(
+      (s) => (!targetUid || s.uid === targetUid) && (s.narration || '').trim().length > 0
+    );
+    if (!candidates.length) {
+      pushToast('请先填写或生成中文旁白文案', 'error');
+      return;
+    }
+    if (targetUid) {
+      setTtsBusyUid(targetUid);
+    } else {
+      setGeneratingTts(true);
+    }
+    try {
+      const r = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          voice: ttsVoice,
+          items: candidates.map((s) => ({ uid: s.uid, text: s.narration.trim() })),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const byUid = Object.fromEntries((data.results || []).map((x) => [x.uid, x]));
+      setShots((prev) =>
+        prev.map((s) => {
+          const hit = byUid[s.uid];
+          if (!hit) return s;
+          return {
+            ...s,
+            ttsFilename: hit.filename,
+            ttsDuration: hit.duration || 0,
+          };
+        })
+      );
+      setTimeout(() => saveProjectNow(), 50);
+      pushToast(`已完成 ${data.results?.length || 0} 条语音合成 (${ttsVoice})`, 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    } finally {
+      setGeneratingTts(false);
+      setTtsBusyUid('');
     }
   };
 
@@ -719,6 +777,7 @@ export default function App() {
             motion: s.motion,
             duration: s.duration,
             narration: s.narration || '',
+            tts_filename: s.ttsFilename || '',
           })),
           width: aspect.width,
           height: aspect.height,
@@ -726,6 +785,7 @@ export default function App() {
           transition: transitionType === 'none' ? 0 : 0.5,
           transition_type: transitionType,
           burn_subtitles: burnSubtitles,
+          auto_align_tts: autoAlignTts,
           bgm_filename: bgmFilename,
           bgm_volume: bgmVolume,
         }),
@@ -855,10 +915,19 @@ export default function App() {
           generatingNarration={generatingNarration}
           llmConfigured={Boolean(health?.llm_configured)}
           onGenerateNarration={handleGenerateNarration}
+          ttsVoice={ttsVoice}
+          onTtsVoiceChange={setTtsVoice}
+          ttsVoices={health?.tts_voices}
+          ttsConfigured={Boolean(health?.tts_configured)}
+          ttsProvider={health?.tts_provider}
+          generatingTts={generatingTts}
+          onGenerateTtsAll={() => handleGenerateTts(null)}
           transitionType={transitionType}
           onTransitionTypeChange={setTransitionType}
           burnSubtitles={burnSubtitles}
           onBurnSubtitlesChange={setBurnSubtitles}
+          autoAlignTts={autoAlignTts}
+          onAutoAlignTtsChange={setAutoAlignTts}
           audioFiles={audioFiles}
           bgmFilename={bgmFilename}
           onBgmFilenameChange={setBgmFilename}
@@ -938,6 +1007,7 @@ export default function App() {
                 aspect={aspect}
                 mode={mode}
                 batchRunning={batchRunning}
+                ttsBusy={generatingTts || ttsBusyUid === shot.uid}
                 onChangePrompt={(val) => {
                   setShots((prev) =>
                     prev.map((s) => (s.uid === shot.uid ? { ...s, prompt: val } : s))
@@ -946,7 +1016,11 @@ export default function App() {
                 }}
                 onChangeNarration={(val) => {
                   setShots((prev) =>
-                    prev.map((s) => (s.uid === shot.uid ? { ...s, narration: val } : s))
+                    prev.map((s) =>
+                      s.uid === shot.uid
+                        ? { ...s, narration: val, ttsFilename: '', ttsDuration: 0 }
+                        : s
+                    )
                   );
                   scheduleSave();
                 }}
@@ -994,6 +1068,7 @@ export default function App() {
                   scheduleSave();
                 }}
                 onReroll={() => handleRerollShot(shot.uid)}
+                onGenerateTts={() => handleGenerateTts(shot.uid)}
                 onUploadImage={(file) => handleUploadShotImage(shot.uid, file)}
                 onPreview={setLightboxSrc}
               />

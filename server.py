@@ -52,6 +52,10 @@ from core.llm_client import (  # noqa: E402
     load_dotenv,
 )
 from core.storage import StudioStorage  # noqa: E402
+from core.tts_client import (  # noqa: E402
+    get_tts_config,
+    synthesize_speech,
+)
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
@@ -61,6 +65,7 @@ WEB_DIST_DIR = os.path.join(BASE_DIR, "web", "dist")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
 AUDIO_DIR = os.path.join(BASE_DIR, "outputs", "audio")
+TTS_DIR = os.path.join(BASE_DIR, "outputs", "tts")
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -204,6 +209,7 @@ def new_compose_job(
     transition,
     transition_type="fade",
     burn_subtitles=True,
+    auto_align_tts=True,
     bgm_path=None,
     bgm_volume=0.35,
     project_id="",
@@ -220,6 +226,7 @@ def new_compose_job(
         "transition": transition,
         "transition_type": transition_type,
         "burn_subtitles": burn_subtitles,
+        "auto_align_tts": auto_align_tts,
         "bgm_path": bgm_path,
         "bgm_volume": bgm_volume,
         "status": "queued",
@@ -320,6 +327,7 @@ def run_compose_job(cid):
         transition=cjob["transition"],
         transition_type=cjob.get("transition_type", "fade"),
         burn_subtitles=cjob.get("burn_subtitles", True),
+        auto_align_tts=cjob.get("auto_align_tts", True),
         bgm_path=cjob.get("bgm_path"),
         bgm_volume=cjob.get("bgm_volume", 0.35),
         progress_cb=on_progress,
@@ -391,6 +399,7 @@ def health():
                     "current_index": job["current_index"],
                 }
                 break
+    tts_cfg = get_tts_config()
     return {
         "workflow_loaded": os.path.exists(WORKFLOW_PATH),
         "comfyui": "ok" if check_comfyui_health(COMFYUI) else "unreachable",
@@ -399,6 +408,10 @@ def health():
         "subtitle_filter": has_subtitle_filter(),
         "llm_configured": is_llm_configured(),
         "llm_model": get_llm_config()["model"],
+        "tts_configured": tts_cfg["configured"],
+        "tts_provider": tts_cfg["active_provider"],
+        "tts_default_voice": tts_cfg["default_voice"],
+        "tts_voices": tts_cfg["voices"],
         "db_ready": get_store() is not None,
         "queued": job_queue.qsize(),
         "jobs": len(jobs),
@@ -555,6 +568,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             ctype, _enc = mimetypes.guess_type(name)
             self._file(os.path.join(AUDIO_DIR, name), ctype or "audio/mpeg", support_range=True)
+        elif path.startswith("/tts/"):
+            name = path[len("/tts/"):]
+            if not _safe_filename(name):
+                self._json({"error": "文件名不对"}, 400)
+                return
+            ctype, _enc = mimetypes.guess_type(name)
+            self._file(os.path.join(TTS_DIR, name), ctype or "audio/wav", support_range=True)
         elif path.startswith("/results/"):
             name = path[len("/results/"):]
             if not _safe_filename(name):
@@ -588,6 +608,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_save_project()
         elif path == "/api/narration":
             self._handle_narration()
+        elif path == "/api/tts":
+            self._handle_tts()
         elif path == "/api/upload-audio":
             self._handle_upload_binary(AUDIO_DIR, (".mp3", ".wav", ".m4a", ".ogg", ".flac"), 30 * 1024 * 1024, "/audio/")
         elif path == "/api/upload-image":
@@ -654,6 +676,46 @@ class Handler(BaseHTTPRequestHandler):
                 style=data.get("style") or "绘本故事",
             )
             self._json(res)
+        except Exception as e:  # noqa: BLE001
+            code = 400 if "未配置" in str(e) else 502
+            self._json({"error": str(e)}, code)
+
+    def _handle_tts(self):
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        items = data.get("items")
+        if not isinstance(items, list) or not items:
+            self._json({"error": "items 不能为空"}, 400)
+            return
+        if len(items) > 30:
+            self._json({"error": "单次最多合成 30 条配音"}, 400)
+            return
+        voice = (data.get("voice") or "").strip() or None
+        provider = (data.get("provider") or "").strip() or None
+        results = []
+        try:
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                uid = str(item.get("uid") or "")
+                text = (item.get("text") or "").strip()
+                if not text:
+                    continue
+                res = synthesize_speech(text, TTS_DIR, voice=voice, provider=provider)
+                results.append({
+                    "uid": uid,
+                    "filename": res["filename"],
+                    "url": f"/tts/{res['filename']}",
+                    "duration": res["duration"],
+                    "provider": res["provider"],
+                    "voice": res["voice"],
+                })
+            if not results:
+                self._json({"error": "没有需要配音的非空旁白文本"}, 400)
+                return
+            self._json({"results": results})
         except Exception as e:  # noqa: BLE001
             code = 400 if "未配置" in str(e) else 502
             self._json({"error": str(e)}, code)
@@ -740,17 +802,28 @@ class Handler(BaseHTTPRequestHandler):
                 dur = DEFAULT_DURATION
             dur = max(1.0, min(15.0, dur))
             narration = item.get("narration") if isinstance(item.get("narration"), str) else ""
+            tts_fname = item.get("tts_filename")
+            tts_path = None
+            if isinstance(tts_fname, str) and tts_fname.strip():
+                if not _safe_filename(tts_fname.strip()):
+                    self._json({"error": f"第 {idx + 1} 个配音文件名不合法"}, 400)
+                    return
+                cand_tts = os.path.join(TTS_DIR, tts_fname.strip())
+                if os.path.isfile(cand_tts):
+                    tts_path = cand_tts
             shots.append({
                 "path": img_path,
                 "motion": motion,
                 "duration": dur,
                 "narration": narration,
+                "tts_path": tts_path,
             })
             shots_meta.append({
                 "filename": fname,
                 "motion": motion,
                 "duration": dur,
                 "narration": narration,
+                "tts_filename": tts_fname.strip() if tts_path else "",
             })
 
         width, height = _normalize_size(data.get("width"), data.get("height"))
@@ -768,6 +841,7 @@ class Handler(BaseHTTPRequestHandler):
         if transition_type not in SUPPORTED_TRANSITIONS:
             transition_type = "fade"
         burn_subtitles = bool(data.get("burn_subtitles", True))
+        auto_align_tts = bool(data.get("auto_align_tts", True))
         bgm_filename = data.get("bgm_filename")
         bgm_path = None
         if isinstance(bgm_filename, str) and bgm_filename.strip():
@@ -794,6 +868,7 @@ class Handler(BaseHTTPRequestHandler):
             transition,
             transition_type=transition_type,
             burn_subtitles=burn_subtitles,
+            auto_align_tts=auto_align_tts,
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
             project_id=project_id,
@@ -802,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None):
-    global COMFYUI, WORKFLOW_PATH, OUT_DIR, COMPOSED_DIR, DB_PATH, store  # noqa: PLW0603
+    global COMFYUI, WORKFLOW_PATH, OUT_DIR, COMPOSED_DIR, AUDIO_DIR, TTS_DIR, DB_PATH, store  # noqa: PLW0603
     ap = argparse.ArgumentParser(description="Comfy Studio 本地生图工作台")
     ap.add_argument("--host", default="0.0.0.0", help="监听地址（默认 0.0.0.0）")
     ap.add_argument("--port", type=int, default=8899, help="端口（默认 8899）")
@@ -817,10 +892,12 @@ def main(argv=None):
     OUT_DIR = args.out_dir or os.path.join(BASE_DIR, "outputs", "images")
     COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
     AUDIO_DIR = os.path.join(BASE_DIR, "outputs", "audio")
+    TTS_DIR = os.path.join(BASE_DIR, "outputs", "tts")
     DB_PATH = args.db or os.path.join(BASE_DIR, "outputs", "studio.db")
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(COMPOSED_DIR, exist_ok=True)
     os.makedirs(AUDIO_DIR, exist_ok=True)
+    os.makedirs(TTS_DIR, exist_ok=True)
 
     store = StudioStorage(DB_PATH)
     store.mark_interrupted_on_startup()

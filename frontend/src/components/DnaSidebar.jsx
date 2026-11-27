@@ -11,11 +11,13 @@ import {
   SlidersHorizontal,
   Sparkles,
   Upload,
+  Volume2,
   Wand2,
   X,
 } from 'lucide-react';
 import {
   ASPECT_RATIOS,
+  DEFAULT_TTS_VOICES,
   NARRATION_STYLES,
   STORY_PRESETS,
   STYLE_CHIPS,
@@ -52,10 +54,19 @@ export default function DnaSidebar({
   generatingNarration,
   llmConfigured,
   onGenerateNarration,
+  ttsVoice,
+  onTtsVoiceChange,
+  ttsVoices,
+  ttsConfigured,
+  ttsProvider,
+  generatingTts,
+  onGenerateTtsAll,
   transitionType,
   onTransitionTypeChange,
   burnSubtitles,
   onBurnSubtitlesChange,
+  autoAlignTts,
+  onAutoAlignTtsChange,
   audioFiles,
   bgmFilename,
   onBgmFilenameChange,
@@ -232,12 +243,12 @@ export default function DnaSidebar({
         </div>
       </div>
 
-      {/* DeepSeek Narration Generator */}
+      {/* DeepSeek Narration + TTS Generator */}
       <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/5 p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-200">
             <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
-            <span>DeepSeek 中文解说词</span>
+            <span>旁白与 AI 语音配音</span>
           </span>
           <span
             className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
@@ -246,13 +257,13 @@ export default function DnaSidebar({
                 : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
             }`}
           >
-            {llmConfigured ? 'API 已就绪' : '未配置 Key'}
+            {llmConfigured ? 'DeepSeek 就绪' : '未配 DeepSeek'}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <SelectDropdown
             size="sm"
-            className="w-[126px] shrink-0"
+            className="w-[122px] shrink-0"
             value={narrationStyle}
             onChange={onNarrationStyleChange}
             options={NARRATION_STYLES}
@@ -268,7 +279,45 @@ export default function DnaSidebar({
             ) : (
               <Wand2 className="w-3.5 h-3.5" />
             )}
-            <span>{generatingNarration ? '生成解说词中…' : 'AI 一键生成旁白'}</span>
+            <span>{generatingNarration ? '生成中…' : 'AI 生成旁白'}</span>
+          </button>
+        </div>
+
+        <div className="pt-2 border-t border-indigo-500/15 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+            <Volume2 className="w-3 h-3 text-cyan-400" />
+            <span>TTS 音色 ({ttsProvider === 'doubao' ? '豆包' : '百炼'})</span>
+          </span>
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+              ttsConfigured
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+            }`}
+          >
+            {ttsConfigured ? 'TTS 就绪' : '未配 TTS Key'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <SelectDropdown
+            size="sm"
+            className="w-[144px] shrink-0"
+            value={ttsVoice}
+            onChange={onTtsVoiceChange}
+            options={ttsVoices?.length ? ttsVoices : DEFAULT_TTS_VOICES}
+          />
+          <button
+            type="button"
+            onClick={onGenerateTtsAll}
+            disabled={generatingTts}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-600/20 hover:bg-cyan-600/35 disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition-colors cursor-pointer"
+          >
+            {generatingTts ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Volume2 className="w-3.5 h-3.5" />
+            )}
+            <span>{generatingTts ? '配音中…' : '批量生成配音'}</span>
           </button>
         </div>
       </div>
@@ -335,6 +384,13 @@ export default function DnaSidebar({
             onChange={onBurnSubtitlesChange}
             label="烧录底部中文字幕"
             description="使用每张分镜卡中的解说词"
+          />
+
+          <ToggleSwitch
+            checked={autoAlignTts}
+            onChange={onAutoAlignTtsChange}
+            label="按配音时长自动对齐镜长"
+            description="语音较长时自动延长该镜运镜秒数"
           />
 
           <div>

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 FFmpeg 静态分镜运镜合成器（纯 Python 标准库调用 ffmpeg）
-支持 Ken Burns 推拉/平移运镜、多转场样式、ASS 中文字幕烧录、BGM 混音与淡出、
+支持 Ken Burns 推拉/平移运镜、多转场样式、ASS 中文字幕烧录、逐镜 TTS 语音配音对齐与 BGM 混音淡出、
 优先 h264_nvenc 硬编码并自动回退 libx264。
 """
 
@@ -10,6 +10,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+
+from core.tts_client import probe_audio_duration
 
 SUPPORTED_MOTIONS = {
     "zoom_in",
@@ -168,10 +170,6 @@ def _format_ass_time(sec):
 
 
 def _write_ass_subtitles(entries, ass_path, width, height):
-    """
-    entries: [(start_sec, end_sec, text), ...]
-    生成 ASS 字幕（底部居中半透明黑底框，兼容中文字体）。
-    """
     font_size = max(22, min(52, int(round(height * 0.046))))
     margin_v = max(24, int(round(height * 0.055)))
     header = (
@@ -213,19 +211,28 @@ def _concat_with_xfade(
     fps,
     use_nvenc,
     ass_path=None,
+    tts_events=None,
     bgm_path=None,
     bgm_volume=0.35,
     total_duration=0.0,
 ):
-    """将多段中间视频用 xfade 转场拼接，可选烧录 ASS 字幕与混入循环淡出 BGM。"""
+    """将多段中间视频用 xfade 转场拼接，可选烧录 ASS 字幕、逐镜 TTS 配音与循环淡出 BGM。"""
     cmd = ["ffmpeg", "-y"]
     for clip_path, _dur in clip_entries:
         cmd += ["-i", clip_path]
 
-    audio_idx = None
+    next_input_idx = len(clip_entries)
+    tts_inputs = []
+    for start_s, tpath in (tts_events or []):
+        tts_inputs.append((next_input_idx, start_s))
+        cmd += ["-i", tpath]
+        next_input_idx += 1
+
+    bgm_idx = None
     if bgm_path:
-        audio_idx = len(clip_entries)
+        bgm_idx = next_input_idx
         cmd += ["-stream_loop", "-1", "-i", bgm_path]
+        next_input_idx += 1
 
     t_type = transition_type if transition_type in SUPPORTED_TRANSITIONS else "fade"
     if t_type == "none":
@@ -262,13 +269,41 @@ def _concat_with_xfade(
 
     map_args = ["-map", "[vfinal]"]
     audio_enc = []
-    if audio_idx is not None:
-        vol = max(0.05, min(1.5, float(bgm_volume or 0.35)))
+    mix_labels = []
+
+    for idx, (inp_idx, start_s) in enumerate(tts_inputs):
+        delay_ms = max(0, int(round(start_s * 1000)))
+        lbl = f"tts{idx}"
+        filter_parts.append(
+            f"[{inp_idx}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"adelay={delay_ms}|{delay_ms}[{lbl}]"
+        )
+        mix_labels.append(f"[{lbl}]")
+
+    if bgm_idx is not None:
+        raw_vol = max(0.05, min(1.5, float(bgm_volume or 0.35)))
+        # 有旁白人声时自动把 BGM 压低一档（ducking），保证人声清晰
+        eff_vol = raw_vol * 0.45 if tts_inputs else raw_vol
         fade_len = min(1.5, max(0.3, total_duration * 0.2))
         fade_start = max(0.0, total_duration - fade_len)
         filter_parts.append(
-            f"[{audio_idx}:a]atrim=0:{total_duration:.3f},asetpts=PTS-STARTPTS,"
-            f"volume={vol:.2f},afade=t=out:st={fade_start:.3f}:d={fade_len:.3f}[afinal]"
+            f"[{bgm_idx}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"atrim=0:{total_duration:.3f},asetpts=PTS-STARTPTS,"
+            f"volume={eff_vol:.2f},afade=t=out:st={fade_start:.3f}:d={fade_len:.3f}[bgm]"
+        )
+        mix_labels.append("[bgm]")
+
+    if len(mix_labels) == 1:
+        single = mix_labels[0]
+        filter_parts.append(
+            f"{single}apad,atrim=0:{total_duration:.3f},asetpts=PTS-STARTPTS[afinal]"
+        )
+        map_args += ["-map", "[afinal]"]
+        audio_enc = ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+    elif len(mix_labels) > 1:
+        filter_parts.append(
+            f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=longest:normalize=0,"
+            f"apad,atrim=0:{total_duration:.3f},asetpts=PTS-STARTPTS[afinal]"
         )
         map_args += ["-map", "[afinal]"]
         audio_enc = ["-c:a", "aac", "-b:a", "192k", "-shortest"]
@@ -294,13 +329,14 @@ def compose_storyboard_video(
     transition=DEFAULT_TRANSITION,
     transition_type="fade",
     burn_subtitles=True,
+    auto_align_tts=True,
     bgm_path=None,
     bgm_volume=0.35,
     progress_cb=None,
 ):
     """
-    将一组静态分镜图片合成为带 Ken Burns 运镜、转场、字幕与 BGM 的完整 MP4。
-    shots: [{"path": "...", "motion": "zoom_in", "duration": 4.0, "narration": "..."}, ...]
+    将一组静态分镜图片合成为带 Ken Burns 运镜、转场、字幕、逐镜 TTS 配音与 BGM 的完整 MP4。
+    shots: [{"path": "...", "motion": "zoom_in", "duration": 4.0, "narration": "...", "tts_path": "..."}, ...]
     """
     if not has_ffmpeg():
         raise RuntimeError("未检测到 ffmpeg，请先安装 ffmpeg 并确保它在 PATH 中")
@@ -324,16 +360,29 @@ def compose_storyboard_video(
     with tempfile.TemporaryDirectory(prefix="comfy_compose_") as tmp_dir:
         clip_entries = []
         sub_entries = []
+        tts_events = []
         cursor = 0.0
 
         for idx, shot in enumerate(shots):
             img_path = shot["path"]
             if not os.path.exists(img_path):
                 raise FileNotFoundError("找不到分镜图片：%s" % img_path)
+
             dur = float(shot.get("duration") or DEFAULT_DURATION)
             dur = max(1.0, min(15.0, dur))
+
+            tts_path = shot.get("tts_path")
+            if tts_path and os.path.isfile(tts_path):
+                tts_dur = probe_audio_duration(tts_path)
+                if auto_align_tts and tts_dur > 0:
+                    pad = 0.55 if idx < len(shots) - 1 else 0.45
+                    dur = max(dur, min(15.0, tts_dur + pad))
+            else:
+                tts_path = None
+
             if len(shots) > 1 and trans > 0 and dur <= trans + 0.2:
                 dur = trans + 0.5
+
             motion = shot.get("motion") or "zoom_in"
             if progress_cb:
                 progress_cb(idx, total_steps, f"正在渲染第 {idx + 1}/{len(shots)} 镜运镜 ({motion})")
@@ -341,11 +390,15 @@ def compose_storyboard_video(
             render_shot_clip(img_path, clip_path, motion, w, h, dur, fps)
             clip_entries.append((clip_path, dur))
 
+            start_t = cursor + (trans * 0.25 if idx > 0 and trans > 0 else 0.0)
+            if tts_path:
+                tts_events.append((start_t, tts_path))
+
             narr = (shot.get("narration") or "").strip()
             if narr:
-                start_t = cursor + (trans * 0.35 if idx > 0 and trans > 0 else 0.0)
-                end_t = cursor + dur - (trans * 0.35 if idx < len(shots) - 1 and trans > 0 else 0.0)
+                end_t = cursor + dur - (trans * 0.3 if idx < len(shots) - 1 and trans > 0 else 0.0)
                 sub_entries.append((start_t, max(start_t + 0.3, end_t), narr))
+
             cursor += dur - (trans if idx < len(shots) - 1 and trans > 0 else 0.0)
 
         total_duration = sum(d for _, d in clip_entries)
@@ -361,7 +414,7 @@ def compose_storyboard_video(
             subtitles_burned = True
 
         if progress_cb:
-            progress_cb(len(shots), total_steps, "正在合成转场与音轨并导出最终成片…")
+            progress_cb(len(shots), total_steps, "正在合成转场、配音与音轨…")
 
         use_nvenc = detect_nvenc()
         encoder_used = "libx264"
@@ -375,6 +428,7 @@ def compose_storyboard_video(
                     fps,
                     use_nvenc=True,
                     ass_path=ass_path,
+                    tts_events=tts_events,
                     bgm_path=bgm_path,
                     bgm_volume=bgm_volume,
                     total_duration=total_duration,
@@ -389,6 +443,7 @@ def compose_storyboard_video(
                     fps,
                     use_nvenc=False,
                     ass_path=ass_path,
+                    tts_events=tts_events,
                     bgm_path=bgm_path,
                     bgm_volume=bgm_volume,
                     total_duration=total_duration,
@@ -403,6 +458,7 @@ def compose_storyboard_video(
                 fps,
                 use_nvenc=False,
                 ass_path=ass_path,
+                tts_events=tts_events,
                 bgm_path=bgm_path,
                 bgm_volume=bgm_volume,
                 total_duration=total_duration,
@@ -419,5 +475,6 @@ def compose_storyboard_video(
         "fps": fps,
         "duration": round(total_duration, 2),
         "subtitles_burned": subtitles_burned,
-        "has_audio": bool(bgm_path),
+        "has_audio": bool(bgm_path or tts_events),
+        "tts_count": len(tts_events),
     }

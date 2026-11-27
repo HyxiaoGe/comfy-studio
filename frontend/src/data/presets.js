@@ -142,4 +142,11 @@ export const TRANSITION_OPTIONS = [
   { value: 'none', label: '直接硬切', badge: 'Cut' },
 ];
 
+export const DEFAULT_TTS_VOICES = [
+  { value: 'Cherry', label: 'Cherry · 阳光女声', badge: '百炼' },
+  { value: 'Serena', label: 'Serena · 温柔女声', badge: '百炼' },
+  { value: 'Ethan', label: 'Ethan · 温暖男声', badge: '百炼' },
+  { value: 'Chelsie', label: 'Chelsie · 灵动女声', badge: '百炼' },
+];
+
 export const MOTION_CYCLE = ['zoom_in', 'pan_right', 'zoom_out', 'pan_left'];
