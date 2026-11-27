@@ -13,7 +13,7 @@ export default function ComposePanel({ state, onClose }) {
             <Film className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-bold text-slate-100">运镜成片</div>
+            <div className="text-sm font-bold text-slate-100">成片预览舞台</div>
             <div className="text-xs text-slate-400 truncate">{state.stage || '准备中…'}</div>
           </div>
         </div>
@@ -40,22 +40,24 @@ export default function ComposePanel({ state, onClose }) {
         </div>
       </div>
 
-      <div className="h-1.5 w-full rounded-full bg-slate-900 overflow-hidden mb-3">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      {state.videoUrl ? (
-        <video
-          key={state.videoUrl + '_' + (state.cacheBust || '')}
-          src={`${state.videoUrl}?t=${state.cacheBust || 1}`}
-          controls
-          playsInline
-          className="w-full max-h-[460px] rounded-xl bg-black border border-slate-800"
-        />
-      ) : null}
+      {!state.videoUrl ? (
+        <div className="h-1.5 w-full rounded-full bg-slate-900 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      ) : (
+        <div className="rounded-xl bg-black border border-slate-800 overflow-hidden flex justify-center">
+          <video
+            key={state.videoUrl + '_' + (state.cacheBust || '')}
+            src={`${state.videoUrl}?t=${state.cacheBust || 1}`}
+            controls
+            playsInline
+            className="w-full max-h-[420px]"
+          />
+        </div>
+      )}
     </section>
   );
 }

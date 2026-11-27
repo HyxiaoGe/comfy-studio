@@ -3,6 +3,7 @@ import {
   ArrowDown,
   ArrowUp,
   Captions,
+  ChevronDown,
   Copy,
   Download,
   Image as ImageIcon,
@@ -46,6 +47,7 @@ export default function ShotCard({
   total,
   aspect,
   mode,
+  viewMode = 'list',
   batchRunning,
   ttsBusy,
   onChangePrompt,
@@ -64,6 +66,7 @@ export default function ShotCard({
   const imgInputRef = useRef(null);
   const audioRef = useRef(null);
   const [playingAudio, setPlayingAudio] = useState(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
 
   const isBusy = shot.status === 'queued' || shot.status === 'running';
   const statusInfo = STATUS_STYLE[shot.status] || STATUS_STYLE.idle;
@@ -88,9 +91,7 @@ export default function ShotCard({
       setPlayingAudio(false);
       return;
     }
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
+    if (audioRef.current) audioRef.current.pause();
     const audio = new Audio(`/tts/${encodeURIComponent(shot.ttsFilename)}`);
     audioRef.current = audio;
     audio.onended = () => setPlayingAudio(false);
@@ -98,25 +99,132 @@ export default function ShotCard({
     audio.play().then(() => setPlayingAudio(true)).catch(() => setPlayingAudio(false));
   };
 
+  const fileInputEl = (
+    <input
+      ref={imgInputRef}
+      type="file"
+      accept=".png,.jpg,.jpeg,.webp"
+      className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (file) onUploadImage(file);
+        e.target.value = '';
+      }}
+    />
+  );
+
+  // ==================== Storyboard Grid View ====================
+  if (viewMode === 'grid') {
+    const motionOpt = MOTION_OPTIONS.find((m) => m.value === shot.motion);
+    return (
+      <article className="group rounded-2xl border border-slate-800/90 hover:border-slate-700 bg-[#111827]/90 overflow-hidden flex flex-col transition-colors shadow-md shadow-black/25">
+        {fileInputEl}
+        <div
+          className="relative bg-[#090d14] overflow-hidden flex items-center justify-center border-b border-slate-800"
+          style={{ aspectRatio: `${aspect.width} / ${aspect.height}` }}
+        >
+          {shot.filename ? (
+            <>
+              <img
+                src={imgSrc}
+                alt={`分镜 #${index + 1}`}
+                onClick={() => onPreview(imgSrc)}
+                className="w-full h-full object-cover cursor-zoom-in transition-transform duration-300 group-hover:scale-[1.02]"
+              />
+              <div className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 flex items-center gap-1 transition-opacity">
+                <button
+                  type="button"
+                  onClick={() => imgInputRef.current?.click()}
+                  title="上传本地图替换"
+                  className="rounded-lg bg-slate-950/80 border border-white/10 p-1.5 text-slate-200 hover:bg-slate-900 cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPreview(imgSrc)}
+                  title="查看大图"
+                  className="rounded-lg bg-slate-950/80 border border-white/10 p-1.5 text-slate-200 hover:bg-slate-900 cursor-pointer"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5 text-slate-500">
+              <ImageIcon className="w-6 h-6 opacity-50" />
+              <span className="text-xs">#{String(index + 1).padStart(2, '0')} 待生成</span>
+            </div>
+          )}
+
+          <div className="absolute top-2 left-2 flex items-center gap-1.5">
+            <span className="rounded-md bg-slate-950/80 backdrop-blur-sm border border-white/10 px-2 py-0.5 text-[11px] font-mono font-bold text-blue-300">
+              #{String(index + 1).padStart(2, '0')}
+            </span>
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm ${statusInfo.cls}`}>
+              {statusInfo.label}
+            </span>
+          </div>
+
+          {isBusy ? (
+            <div className="absolute inset-0 bg-[#090d14]/75 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 text-xs font-semibold text-slate-100">
+              <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+              <span>{shot.status === 'queued' ? '排队中…' : '绘制中…'}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-3 flex-1 flex flex-col gap-2.5">
+          <div className="text-[13px] text-slate-100 leading-snug min-h-[2.4em]">
+            {shot.narration?.trim() ? (
+              <p className="line-clamp-2">{shot.narration}</p>
+            ) : (
+              <p className="text-slate-500 text-xs line-clamp-2">{shot.prompt || '暂无描述'}</p>
+            )}
+          </div>
+
+          <div className="mt-auto pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-2">
+              <span>{motionOpt?.label || '运镜'}</span>
+              <span>·</span>
+              <span className="tabular-nums">{shot.duration}s</span>
+              {shot.ttsFilename ? (
+                <button
+                  type="button"
+                  onClick={togglePlayTts}
+                  className="inline-flex items-center gap-1 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-cyan-200 cursor-pointer"
+                >
+                  {playingAudio ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                  <span>{shot.ttsDuration}s</span>
+                </button>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={onReroll}
+              disabled={mode !== 'storyboard' || isBusy}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-40 px-2 py-1 text-[11px] font-medium text-slate-200 cursor-pointer"
+            >
+              <RefreshCw className={`w-3 h-3 text-blue-400 ${isBusy ? 'animate-spin' : ''}`} />
+              <span>重绘</span>
+            </button>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  // ==================== Detail List View ====================
   return (
-    <article className="group rounded-2xl border border-slate-800/90 hover:border-slate-700 bg-[#111827]/90 p-3.5 grid grid-cols-1 md:grid-cols-[248px_minmax(0,1fr)] gap-4 transition-colors shadow-md shadow-black/25">
+    <article className="group rounded-2xl border border-slate-800/90 hover:border-slate-700 bg-[#111827]/90 p-3.5 grid grid-cols-1 md:grid-cols-[236px_minmax(0,1fr)] gap-4 transition-colors shadow-md shadow-black/25">
+      {fileInputEl}
+
       {/* Left Media Preview */}
       <div
         className="relative rounded-xl border border-slate-800 bg-[#090d14] overflow-hidden flex items-center justify-center"
         style={{ aspectRatio: `${aspect.width} / ${aspect.height}` }}
       >
-        <input
-          ref={imgInputRef}
-          type="file"
-          accept=".png,.jpg,.jpeg,.webp"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onUploadImage(file);
-            e.target.value = '';
-          }}
-        />
-
         {shot.filename ? (
           <>
             <img
@@ -143,9 +251,9 @@ export default function ShotCard({
                 <Maximize2 className="w-3.5 h-3.5" />
               </button>
             </div>
-            <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 pointer-events-none">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 pointer-events-none">
               <span className="pointer-events-auto rounded-md bg-slate-950/80 backdrop-blur-sm border border-white/10 px-2 py-0.5 text-[11px] tabular-nums text-slate-200">
-                {shot.seed != null ? `seed ${shot.seed}` : '本地上传'}
+                {shot.seed != null ? `seed ${shot.seed}` : '本地图'}
               </span>
               <a
                 href={`/results/${encodeURIComponent(shot.filename)}`}
@@ -168,7 +276,7 @@ export default function ShotCard({
               className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#111827] hover:bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer"
             >
               <Upload className="w-3 h-3" />
-              <span>或上传本地图</span>
+              <span>上传本地图</span>
             </button>
           </div>
         )}
@@ -181,18 +289,21 @@ export default function ShotCard({
         ) : null}
       </div>
 
-      {/* Right Editor & Controls */}
-      <div className="flex flex-col gap-2 min-w-0">
+      {/* Right Editor & Controls (Story Narration First, Prompt Collapsible) */}
+      <div className="flex flex-col gap-2.5 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-mono font-bold text-blue-300">
               #{String(index + 1).padStart(2, '0')}
             </span>
-            <span
-              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${statusInfo.cls}`}
-            >
+            <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${statusInfo.cls}`}>
               {statusInfo.label}
             </span>
+            {shot.seed != null ? (
+              <span className="hidden sm:inline text-[11px] text-slate-500 tabular-nums">
+                seed {shot.seed}
+              </span>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-1">
@@ -235,48 +346,73 @@ export default function ShotCard({
           </div>
         </div>
 
-        <textarea
-          rows={2}
-          value={shot.prompt}
-          onChange={(e) => onChangePrompt(e.target.value)}
-          placeholder="画面提示词：描述本镜景别、主体动作、光线与环境细节…"
-          className="w-full rounded-xl border border-slate-800 bg-[#0c121e] px-3 py-2 text-[13px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition resize-y leading-relaxed"
-        />
+        {/* Primary: Chinese Narration + TTS Audition */}
+        <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-2.5 space-y-2 focus-within:border-indigo-400 transition-colors">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-300">
+              <Captions className="w-3.5 h-3.5" />
+              <span>中文旁白 / 字幕文案</span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              {shot.ttsFilename ? (
+                <button
+                  type="button"
+                  onClick={togglePlayTts}
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 hover:bg-cyan-500/30 px-2 py-0.5 text-[11px] font-medium text-cyan-200 cursor-pointer"
+                >
+                  {playingAudio ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                  <span>试听 {shot.ttsDuration ? `${shot.ttsDuration}s` : ''}</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onGenerateTts}
+                disabled={!shot.narration?.trim() || ttsBusy}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2 py-0.5 text-[11px] font-medium text-slate-200 cursor-pointer"
+              >
+                {ttsBusy ? <Loader2 className="w-3 h-3 animate-spin text-cyan-400" /> : <Mic className="w-3 h-3 text-cyan-400" />}
+                <span>{shot.ttsFilename ? '重配音' : '生成配音'}</span>
+              </button>
+            </div>
+          </div>
 
-        {/* Chinese Narration / Subtitle + TTS Bar */}
-        <div className="flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-950/20 px-2.5 py-1.5 focus-within:border-indigo-400 transition-colors">
-          <span className="inline-flex items-center gap-1 rounded-md bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-300 shrink-0">
-            <Captions className="w-3 h-3" />
-            <span>旁白</span>
-          </span>
-          <input
-            type="text"
+          <textarea
+            rows={2}
             value={shot.narration || ''}
             onChange={(e) => onChangeNarration(e.target.value)}
-            placeholder="中文解说词 / 底部字幕（可由左侧 DeepSeek 生成或直接手写）"
-            className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none"
+            placeholder="填写这一镜的中文旁白（可在左侧「旁白与成片」Tab 一键由 DeepSeek 生成）…"
+            className="w-full bg-transparent text-[13.5px] text-slate-100 placeholder-slate-500 focus:outline-none resize-none leading-relaxed"
           />
-          {shot.ttsFilename ? (
-            <button
-              type="button"
-              onClick={togglePlayTts}
-              title="试听此镜配音"
-              className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 hover:bg-cyan-500/30 px-2 py-0.5 text-[11px] font-medium text-cyan-200 shrink-0 cursor-pointer"
-            >
-              {playingAudio ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
-              <span>{shot.ttsDuration ? `${shot.ttsDuration}s` : '试听'}</span>
-            </button>
-          ) : null}
+        </div>
+
+        {/* Secondary: Collapsible AI Drawing Prompt */}
+        <div className="rounded-lg border border-slate-800/80 bg-[#0c121e]">
           <button
             type="button"
-            onClick={onGenerateTts}
-            disabled={!shot.narration?.trim() || ttsBusy}
-            title={shot.ttsFilename ? '重新生成此镜配音' : '为本镜生成 AI 配音'}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2 py-0.5 text-[11px] font-medium text-slate-200 shrink-0 cursor-pointer"
+            onClick={() => setPromptExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
           >
-            {ttsBusy ? <Loader2 className="w-3 h-3 animate-spin text-cyan-400" /> : <Mic className="w-3 h-3 text-cyan-400" />}
-            <span>{shot.ttsFilename ? '重配' : '配音'}</span>
+            <span className="truncate">
+              <strong className="text-slate-400 font-medium mr-1.5">绘图词:</strong>
+              {shot.prompt || '点击填写英文画面描述…'}
+            </span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 shrink-0 transition-transform ${
+                promptExpanded ? 'rotate-180 text-blue-400' : ''
+              }`}
+            />
           </button>
+          {promptExpanded ? (
+            <div className="px-2.5 pb-2.5 pt-1 border-t border-slate-800/70">
+              <textarea
+                rows={2}
+                value={shot.prompt}
+                onChange={(e) => onChangePrompt(e.target.value)}
+                placeholder="英文画面描述（将自动拼接左侧公共画风前缀）…"
+                className="w-full rounded-lg border border-slate-800 bg-[#090d14] px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y leading-relaxed"
+              />
+            </div>
+          ) : null}
         </div>
 
         {shot.error ? (
@@ -285,13 +421,14 @@ export default function ShotCard({
           </div>
         ) : null}
 
-        <div className="mt-auto pt-1 flex items-center justify-between gap-2.5 flex-wrap">
+        {/* Bottom Motion & Reroll Bar */}
+        <div className="mt-auto pt-0.5 flex items-center justify-between gap-2.5 flex-wrap">
           <div className="flex items-center gap-2.5 flex-wrap">
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-slate-400 font-medium">运镜</span>
               <SelectDropdown
                 size="sm"
-                className="w-[155px]"
+                className="w-[150px]"
                 value={shot.motion}
                 onChange={onChangeMotion}
                 options={MOTION_OPTIONS}

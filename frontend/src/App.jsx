@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clapperboard, Plus } from 'lucide-react';
+import { Clapperboard, LayoutGrid, LayoutList, Plus } from 'lucide-react';
 import {
   ACTIVE_BATCH_KEY,
   ASPECT_RATIOS,
@@ -8,6 +8,7 @@ import {
   STORY_PRESETS,
 } from './data/presets';
 import { useToast } from './components/ui/ToastProvider';
+import SegmentedControl from './components/ui/SegmentedControl';
 import TopBar from './components/TopBar';
 import DnaSidebar from './components/DnaSidebar';
 import ShotCard from './components/ShotCard';
@@ -75,6 +76,7 @@ export default function App() {
   });
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('list'); // list | grid
   const [historyProjects, setHistoryProjects] = useState([]);
   const [historyComps, setHistoryComps] = useState([]);
   const [lightboxSrc, setLightboxSrc] = useState('');
@@ -849,6 +851,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#090d14] text-slate-200">
       <TopBar
+        title={title}
+        onTitleChange={(v) => {
+          setTitle(v);
+          scheduleSave();
+        }}
+        saveState={saveState}
         mode={mode}
         onModeChange={(nextMode) => {
           setMode(nextMode);
@@ -860,14 +868,8 @@ export default function App() {
         historyCount={historyProjects.length + historyComps.length}
       />
 
-      <main className="max-w-[1520px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[384px_minmax(0,1fr)] gap-5 items-start">
+      <main className="max-w-[1560px] mx-auto px-4 lg:px-6 py-4 grid grid-cols-1 lg:grid-cols-[364px_minmax(0,1fr)] gap-5 items-start">
         <DnaSidebar
-          title={title}
-          onTitleChange={(v) => {
-            setTitle(v);
-            scheduleSave();
-          }}
-          saveState={saveState}
           selectedPresetId={selectedPresetId}
           onSelectPreset={(id) => applyPreset(id, { asNew: true })}
           onResetPreset={() => applyPreset(selectedPresetId, { asNew: false })}
@@ -940,6 +942,8 @@ export default function App() {
           composeDisabled={mode !== 'storyboard' || readyCount === 0 || composing}
           batchRunning={batchRunning}
           composing={composing}
+          shotCount={shots.length}
+          readyCount={readyCount}
         />
 
         <section className="flex flex-col gap-3.5 min-w-0">
@@ -964,7 +968,7 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="rounded-2xl border border-slate-800/90 bg-[#111827]/90 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="rounded-2xl border border-slate-800/90 bg-[#111827]/90 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 text-[13px] text-slate-400">
               <span>
                 共 <strong className="text-slate-100 tabular-nums">{shots.length}</strong> 镜
@@ -979,17 +983,30 @@ export default function App() {
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setShots((prev) => [...prev, buildShot('', prev.length)]);
-                scheduleSave();
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5 text-blue-400" />
-              <span>新增分镜</span>
-            </button>
+            <div className="flex items-center gap-2.5">
+              <SegmentedControl
+                size="xs"
+                variant="subtle"
+                value={viewMode}
+                onChange={setViewMode}
+                options={[
+                  { value: 'list', label: '精编', icon: LayoutList, title: '精编列表视图' },
+                  { value: 'grid', label: '故事板', icon: LayoutGrid, title: '故事板网格视图' },
+                ]}
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShots((prev) => [...prev, buildShot('', prev.length)]);
+                  scheduleSave();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-blue-400" />
+                <span>新增分镜</span>
+              </button>
+            </div>
           </div>
 
           <ComposePanel
@@ -997,7 +1014,13 @@ export default function App() {
             onClose={() => setComposeState((prev) => ({ ...prev, visible: false }))}
           />
 
-          <div className="flex flex-col gap-3">
+          <div
+            className={
+              viewMode === 'grid'
+                ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5'
+                : 'flex flex-col gap-3'
+            }
+          >
             {shots.map((shot, idx) => (
               <ShotCard
                 key={shot.uid}
@@ -1006,6 +1029,7 @@ export default function App() {
                 total={shots.length}
                 aspect={aspect}
                 mode={mode}
+                viewMode={viewMode}
                 batchRunning={batchRunning}
                 ttsBusy={generatingTts || ttsBusyUid === shot.uid}
                 onChangePrompt={(val) => {

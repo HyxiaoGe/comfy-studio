@@ -1,7 +1,11 @@
-import { Clapperboard, FolderClock, Image as ImageIcon } from 'lucide-react';
+import { useState } from 'react';
+import { Clapperboard, FolderClock, Image as ImageIcon, Pencil } from 'lucide-react';
 import SegmentedControl from './ui/SegmentedControl';
 
 export default function TopBar({
+  title,
+  onTitleChange,
+  saveState,
   mode,
   onModeChange,
   health,
@@ -9,89 +13,132 @@ export default function TopBar({
   onOpenHistory,
   historyCount,
 }) {
+  const [editingTitle, setEditingTitle] = useState(false);
+
   const allGood = Boolean(health?.workflow_loaded && health?.comfyui === 'ok' && health?.ffmpeg);
   const busy = Boolean(gpuProgress?.busy);
 
   const dotCls = busy
-    ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)] animate-pulse'
+    ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.75)] animate-pulse'
     : allGood
-    ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.65)]'
-    : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.6)]';
-
-  const healthParts = [];
-  if (health) {
-    healthParts.push(health.workflow_loaded ? '工作流就绪' : '缺少工作流');
-    healthParts.push(health.comfyui === 'ok' ? 'ComfyUI 在线' : 'ComfyUI 离线');
-    healthParts.push(health.ffmpeg ? (health.nvenc ? 'FFmpeg (NVENC)' : 'FFmpeg (x264)') : '缺少 FFmpeg');
-    if (health.queued) healthParts.push(`排队 ${health.queued}`);
-  } else {
-    healthParts.push('检测服务中…');
-  }
+    ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]'
+    : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.65)]';
 
   const pct =
     gpuProgress?.total > 0 ? Math.min(100, Math.round((gpuProgress.done / gpuProgress.total) * 100)) : 0;
 
+  const statusText = busy
+    ? `${gpuProgress?.text || '生成中'} · ${pct}%`
+    : !health
+    ? '检测服务中…'
+    : health.comfyui === 'ok'
+    ? health.queued
+      ? `ComfyUI 在线 · 排队 ${health.queued}`
+      : 'ComfyUI 在线 · 空闲'
+    : 'ComfyUI 离线';
+
+  const tooltip = health
+    ? [
+        `工作流: ${health.workflow_loaded ? '就绪' : '缺失'}`,
+        `ComfyUI: ${health.comfyui === 'ok' ? '在线' : '离线'}`,
+        `FFmpeg: ${health.ffmpeg ? (health.nvenc ? 'NVENC' : 'x264') : '缺失'}`,
+        `DeepSeek: ${health.llm_configured ? '已配置' : '未配置'}`,
+        `TTS: ${health.tts_configured ? health.tts_provider : '未配置'}`,
+      ].join(' | ')
+    : '';
+
+  const saveIndicator =
+    saveState === 'saving'
+      ? { text: '保存中', cls: 'text-amber-300' }
+      : saveState === 'error'
+      ? { text: '未保存', cls: 'text-rose-400' }
+      : { text: '已保存', cls: 'text-emerald-400/90' };
+
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-800/90 bg-[#090d14]/90 backdrop-blur-xl">
-      <div className="max-w-[1520px] mx-auto px-5 py-2.5 flex items-center justify-between gap-4 flex-wrap">
-        {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center font-bold text-sm text-white shadow-lg shadow-blue-950/60">
+    <header className="sticky top-0 z-40 border-b border-slate-800/90 bg-[#090d14]/92 backdrop-blur-xl">
+      <div className="max-w-[1560px] mx-auto px-4 lg:px-6 h-14 flex items-center justify-between gap-3">
+        {/* Left: Brand + Inline Editable Project Title */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center font-bold text-xs text-white shadow-lg shadow-blue-950/60 shrink-0">
             CS
           </div>
-          <div>
-            <div className="text-[15px] font-bold tracking-tight text-slate-100 leading-tight">
-              Comfy Studio
-            </div>
-            <div className="text-[11px] text-slate-500 leading-tight">
-              RTX 3060 12GB 串行分镜与运镜工坊
-            </div>
+          <div className="hidden sm:block text-sm font-bold tracking-tight text-slate-200 shrink-0">
+            Comfy Studio
+          </div>
+          <span className="hidden sm:inline text-slate-700 shrink-0">/</span>
+
+          <div className="flex items-center gap-1.5 min-w-0">
+            {editingTitle ? (
+              <input
+                type="text"
+                autoFocus
+                value={title}
+                onChange={(e) => onTitleChange(e.target.value)}
+                onBlur={() => setEditingTitle(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Escape') setEditingTitle(false);
+                }}
+                className="w-44 sm:w-56 rounded-md border border-blue-500/70 bg-[#0c121e] px-2 py-1 text-xs font-semibold text-slate-100 focus:outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingTitle(true)}
+                title="点击重命名当前项目"
+                className="group inline-flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-slate-800/70 text-xs font-semibold text-slate-100 max-w-[180px] sm:max-w-[230px] cursor-pointer transition-colors"
+              >
+                <span className="truncate">{title || '未命名分镜项目'}</span>
+                <Pencil className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 shrink-0 transition-opacity" />
+              </button>
+            )}
+            <span className={`hidden md:inline text-[11px] font-medium shrink-0 ${saveIndicator.cls}`}>
+              · {saveIndicator.text}
+            </span>
           </div>
         </div>
 
-        {/* Mode switch */}
-        <SegmentedControl
-          value={mode}
-          onChange={onModeChange}
-          options={[
-            { value: 'storyboard', label: '图文分镜模式', icon: ImageIcon },
-            { value: 'video', label: '音画短片模式', icon: Clapperboard },
-          ]}
-        />
+        {/* Center: Mode Switch */}
+        <div className="hidden md:block">
+          <SegmentedControl
+            size="sm"
+            value={mode}
+            onChange={onModeChange}
+            options={[
+              { value: 'storyboard', label: '图文分镜', icon: ImageIcon },
+              { value: 'video', label: '音画短片', icon: Clapperboard },
+            ]}
+          />
+        </div>
 
-        {/* Status & History */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        {/* Right: Unified Status Pill + History Button */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div
+            title={tooltip}
+            className="relative overflow-hidden inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-[#111827] px-3 py-1.5 text-xs text-slate-300"
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
+            <span className="whitespace-nowrap">{statusText}</span>
+            {busy ? (
+              <div
+                className="absolute inset-x-0 bottom-0 h-[2px] bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            ) : null}
+          </div>
+
           <button
             type="button"
             onClick={onOpenHistory}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#111827] hover:bg-slate-800 hover:border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
           >
             <FolderClock className="w-3.5 h-3.5 text-cyan-400" />
-            <span>历史与成片</span>
+            <span className="hidden sm:inline">历史与成片</span>
             {historyCount > 0 ? (
-              <span className="ml-0.5 rounded-full bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-300 border border-slate-700">
+              <span className="rounded-full bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-300 border border-slate-700 tabular-nums">
                 {historyCount}
               </span>
             ) : null}
           </button>
-
-          <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-[#111827] px-3 py-1.5 text-xs text-slate-300">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
-            <span>{healthParts.join(' · ')}</span>
-          </div>
-
-          <div className="min-w-[200px] rounded-lg border border-slate-800 bg-[#111827] px-3 py-1.5">
-            <div className="flex items-center justify-between gap-3 text-[11px] text-slate-400 mb-1">
-              <span className="truncate max-w-[155px]">{gpuProgress?.text || '显卡队列：空闲'}</span>
-              <span className="tabular-nums text-slate-300 font-medium">{pct}%</span>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-slate-900 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
         </div>
       </div>
     </header>
