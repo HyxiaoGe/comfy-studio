@@ -29,6 +29,7 @@ export default function PromptTagsField({
   tone = 'default',
   compact = false,
   minHeight = 44,
+  className = '',
 }) {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -50,8 +51,8 @@ export default function PromptTagsField({
   };
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
+    <div className={`flex flex-col gap-1.5 ${className}`}>
+      <div className="flex items-center justify-between gap-2 shrink-0">
         {label ? (
           <span className="text-[11px] font-medium text-slate-300 truncate">
             {label}
@@ -116,7 +117,7 @@ export default function PromptTagsField({
           onChange={(e) => onChange(e.target.value)}
           onBlur={() => setEditing(false)}
           placeholder={placeholder}
-          className="w-full rounded-xl border border-blue-500/60 bg-[#090d14] px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none leading-relaxed"
+          className="w-full flex-1 rounded-xl border border-blue-500/60 bg-[#090d14] px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none leading-relaxed"
         />
       ) : (
         <div
@@ -131,7 +132,7 @@ export default function PromptTagsField({
           }}
           title="点击切换编辑"
           style={{ minHeight: `${minHeight}px` }}
-          className={`w-full rounded-xl border border-slate-800/90 hover:border-slate-700 bg-[#090d14]/85 ${
+          className={`w-full flex-1 rounded-xl border border-slate-800/90 hover:border-slate-700 bg-[#090d14]/85 ${
             compact ? 'px-2 py-1.5' : 'px-2.5 py-2'
           } cursor-text transition-colors`}
         >

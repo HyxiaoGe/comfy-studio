@@ -69,9 +69,9 @@ export default function HomePage({
         <div className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-indigo-500/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl" />
 
-        <div className="relative grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_380px] gap-6 items-start">
+        <div className="relative grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_380px] gap-6 items-stretch">
           {/* Left: Story Idea Input */}
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4 h-full">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/35 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-200">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
@@ -97,13 +97,15 @@ export default function HomePage({
               </p>
             </div>
 
-            <AutoGrowTextarea
-              minHeight={88}
-              value={storyIdea}
-              onChange={(e) => onStoryIdeaChange(e.target.value)}
-              placeholder="例如：一只怕黑的小橘猫，在夏夜跟着萤火虫学会了勇敢..."
-              className="w-full rounded-2xl border border-slate-700/80 bg-[#090e18]/90 px-4 py-3 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-            />
+            <div className="flex-1 flex flex-col rounded-2xl border border-slate-700/80 bg-[#090e18]/90 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-colors">
+              <AutoGrowTextarea
+                minHeight={108}
+                value={storyIdea}
+                onChange={(e) => onStoryIdeaChange(e.target.value)}
+                placeholder="例如：一只怕黑的小橘猫，在夏夜跟着萤火虫学会了勇敢..."
+                className="w-full flex-1 bg-transparent px-4 py-3 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none"
+              />
+            </div>
 
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium text-slate-400">灵感试一试：</div>

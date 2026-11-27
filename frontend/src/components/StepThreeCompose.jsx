@@ -255,7 +255,7 @@ export default function StepThreeCompose({
       </section>
 
       {/* Right: Post-production Settings & Export */}
-      <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 lg:sticky lg:top-[128px]">
+      <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 lg:sticky lg:top-[68px]">
         <h3 className="text-sm font-bold text-slate-100">后期参数与成片导出</h3>
 
         <div className="rounded-xl border border-slate-800 bg-[#0c121e] p-3.5 space-y-3.5">
