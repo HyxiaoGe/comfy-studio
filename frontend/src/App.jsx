@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clapperboard, LayoutGrid, LayoutList, Plus } from 'lucide-react';
 import {
   ACTIVE_BATCH_KEY,
   ASPECT_RATIOS,
@@ -9,11 +8,12 @@ import {
   STYLE_CHIPS,
 } from './data/presets';
 import { useToast } from './components/ui/ToastProvider';
-import SegmentedControl from './components/ui/SegmentedControl';
 import TopBar from './components/TopBar';
-import DnaSidebar from './components/DnaSidebar';
-import ShotCard from './components/ShotCard';
-import ComposePanel from './components/ComposePanel';
+import StudioStepper from './components/StudioStepper';
+import HomePage from './components/HomePage';
+import StepOneScript from './components/StepOneScript';
+import StepTwoProduction from './components/StepTwoProduction';
+import StepThreeCompose from './components/StepThreeCompose';
 import HistoryDrawer from './components/HistoryDrawer';
 import Lightbox from './components/Lightbox';
 
@@ -36,13 +36,15 @@ export default function App() {
   const uidRef = useRef(1);
   const nextUid = useCallback(() => `shot_${uidRef.current++}`, []);
 
+  const [activeView, setActiveView] = useState('home'); // home | studio
+  const [activeStep, setActiveStep] = useState(1); // 1 | 2 | 3
   const [mode, setMode] = useState('storyboard');
   const [projectId, setProjectId] = useState(null);
   const [title, setTitle] = useState('未命名分镜项目');
   const [storyIdea, setStoryIdea] = useState('');
   const [aiShotCount, setAiShotCount] = useState(6);
   const [generatingStoryboard, setGeneratingStoryboard] = useState(false);
-  const [prefix, setPrefix] = useState(STYLE_CHIPS[0].prefix);
+  const [prefix, setPrefix] = useState('');
   const [negativePrompt, setNegativePrompt] = useState(DEFAULT_NEGATIVE_PROMPT);
   const [seed, setSeed] = useState(42);
   const [autoRandomize, setAutoRandomize] = useState(false);
@@ -305,6 +307,8 @@ export default function App() {
       setShots(nextShots);
       await saveProjectNow(nextState);
       fetchLists();
+      setActiveView('studio');
+      setActiveStep(1);
       pushToast(
         `已用 ${data.model || 'DeepSeek'} 生成「${nextState.title}」(${nextShots.length} 镜)`,
         'success'
@@ -469,6 +473,8 @@ export default function App() {
             const saved = JSON.parse(raw);
             const activePid = restoredProj?.id || stateRef.current.projectId;
             if (saved?.job_id && Array.isArray(saved.submittedUids) && saved.project_id === activePid) {
+              setActiveView('studio');
+              setActiveStep(2);
               resumeBatchPolling(saved.job_id, saved.submittedUids);
             } else {
               localStorage.removeItem(ACTIVE_BATCH_KEY);
@@ -876,262 +882,345 @@ export default function App() {
   };
 
   const readyCount = shots.filter((s) => Boolean(s.filename)).length;
+  const ttsCount = shots.filter((s) => Boolean(s.ttsFilename)).length;
+
+  const openProjectById = useCallback(
+    async (pid, preferredStep = null) => {
+      const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
+      const data = await r.json();
+      if (!r.ok || !data.project) return;
+      applyProjectRecord(data.project);
+      await restoreCompositionForProject(data.project.id);
+      const projShots = data.project.shots || [];
+      const hasAnyContent = projShots.some((s) => (s.prompt || '').trim() || (s.narration || '').trim());
+      const hasAnyReady = projShots.some((s) => Boolean(s.filename));
+      const targetStep = preferredStep || (hasAnyReady ? 2 : hasAnyContent ? 2 : 1);
+      setActiveView('studio');
+      setActiveStep(targetStep);
+      setDrawerOpen(false);
+      pushToast(`已打开项目：${data.project.title}`, 'info');
+    },
+    [applyProjectRecord, pushToast, restoreCompositionForProject]
+  );
+
+  const createBlankProject = useCallback(async () => {
+    const blankShots = [buildShot('', 0), buildShot('', 1)];
+    const nextState = {
+      projectId: '',
+      title: '新建分镜项目',
+      mode: 'storyboard',
+      prefix: STYLE_CHIPS[0].prefix,
+      negativePrompt: DEFAULT_NEGATIVE_PROMPT,
+      seed,
+      aspectValue,
+      shots: blankShots,
+    };
+    setProjectId(null);
+    setTitle(nextState.title);
+    setPrefix(nextState.prefix);
+    setNegativePrompt(nextState.negativePrompt);
+    setShots(blankShots);
+    setComposeState((prev) => ({ ...prev, visible: false, videoUrl: '' }));
+    await saveProjectNow(nextState);
+    fetchLists();
+    setActiveView('studio');
+    setActiveStep(1);
+    setDrawerOpen(false);
+    pushToast('已创建空白分镜项目', 'success');
+  }, [aspectValue, buildShot, fetchLists, pushToast, saveProjectNow, seed]);
+
+  const handlePlayComposition = useCallback(
+    async (c) => {
+      if (c.project_id) {
+        const exists = historyProjects.some((p) => p.id === c.project_id);
+        if (exists) {
+          await openProjectById(c.project_id, 3);
+        }
+      } else {
+        setActiveView('studio');
+        setActiveStep(3);
+      }
+      setComposeState({
+        visible: true,
+        done: 1,
+        total: 1,
+        stage: `成片就绪 · ${c.width}×${c.height} · ${c.duration}s · 编码器 ${c.encoder || 'h264'}`,
+        videoUrl: c.video_url,
+        filename: c.filename,
+        cacheBust: Date.now(),
+      });
+      setActiveView('studio');
+      setActiveStep(3);
+      setDrawerOpen(false);
+    },
+    [historyProjects, openProjectById]
+  );
+
+  const updateShotPrompt = (uid, val) => {
+    setShots((prev) => prev.map((s) => (s.uid === uid ? { ...s, prompt: val } : s)));
+    scheduleSave();
+  };
+
+  const updateShotNarration = (uid, val) => {
+    setShots((prev) =>
+      prev.map((s) =>
+        s.uid === uid ? { ...s, narration: val, ttsFilename: '', ttsDuration: 0 } : s
+      )
+    );
+    scheduleSave();
+  };
+
+  const updateShotMotion = (uid, val) => {
+    setShots((prev) => prev.map((s) => (s.uid === uid ? { ...s, motion: val } : s)));
+    scheduleSave();
+  };
+
+  const updateShotDuration = (uid, val) => {
+    setShots((prev) => prev.map((s) => (s.uid === uid ? { ...s, duration: val } : s)));
+    scheduleSave();
+  };
+
+  const moveShotUp = (idx) => {
+    if (idx === 0) return;
+    setShots((prev) => {
+      const next = [...prev];
+      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+      return next;
+    });
+    scheduleSave();
+  };
+
+  const moveShotDown = (idx) => {
+    setShots((prev) => {
+      if (idx >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+      return next;
+    });
+    scheduleSave();
+  };
+
+  const duplicateShot = (idx, shot) => {
+    setShots((prev) => {
+      const clone = buildShot(shot.prompt, idx + 1, shot.narration || '');
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+    scheduleSave();
+  };
+
+  const deleteShot = (uid) => {
+    setShots((prev) => prev.filter((s) => s.uid !== uid));
+    scheduleSave();
+  };
+
+  const addShot = () => {
+    setShots((prev) => [...prev, buildShot('', prev.length)]);
+    scheduleSave();
+  };
 
   return (
     <div className="min-h-screen bg-[#090d14] text-slate-200">
       <TopBar
+        activeView={activeView}
+        onGoHome={() => setActiveView('home')}
+        onResumeStudio={() => setActiveView('studio')}
+        hasActiveProject={shots.length > 0}
         title={title}
         onTitleChange={(v) => {
           setTitle(v);
           scheduleSave();
         }}
         saveState={saveState}
-        mode={mode}
-        onModeChange={(nextMode) => {
-          setMode(nextMode);
-          scheduleSave();
-        }}
         health={health}
         gpuProgress={gpuProgress}
         onOpenHistory={() => setDrawerOpen(true)}
         historyCount={historyProjects.length + historyComps.length}
       />
 
-      <main className="max-w-[1560px] mx-auto px-4 lg:px-6 py-4 grid grid-cols-1 lg:grid-cols-[364px_minmax(0,1fr)] gap-5 items-start">
-        <DnaSidebar
+      {activeView === 'home' ? (
+        <HomePage
           storyIdea={storyIdea}
           onStoryIdeaChange={setStoryIdea}
           aiShotCount={aiShotCount}
           onAiShotCountChange={setAiShotCount}
-          generatingStoryboard={generatingStoryboard}
-          onGenerateStoryboard={handleGenerateStoryboard}
-          prefix={prefix}
-          onPrefixChange={(v) => {
-            setPrefix(v);
-            scheduleSave();
-          }}
-          customChips={customChips}
-          onAddCustomChip={(label, chipPrefix) => {
-            const next = [...customChips, { label, prefix: chipPrefix }];
-            setCustomChips(next);
-            localStorage.setItem(CUSTOM_CHIPS_KEY, JSON.stringify(next));
-            pushToast(`已保存风格胶囊「${label}」`, 'success');
-          }}
-          onRemoveCustomChip={(idx) => {
-            const next = customChips.filter((_, i) => i !== idx);
-            setCustomChips(next);
-            localStorage.setItem(CUSTOM_CHIPS_KEY, JSON.stringify(next));
-            pushToast('已移除自定义胶囊', 'info');
-          }}
           aspectValue={aspectValue}
           onAspectChange={(v) => {
             setAspectValue(v);
             scheduleSave();
           }}
-          seed={seed}
-          onSeedChange={(v) => {
-            setSeed(v);
-            scheduleSave();
-          }}
-          onRandomSeed={() => {
-            setSeed(randomSeed());
-            scheduleSave();
-          }}
-          autoRandomize={autoRandomize}
-          onAutoRandomizeChange={setAutoRandomize}
-          negativePrompt={negativePrompt}
-          onNegativeChange={(v) => {
-            setNegativePrompt(v);
-            scheduleSave();
-          }}
           narrationStyle={narrationStyle}
           onNarrationStyleChange={setNarrationStyle}
-          generatingNarration={generatingNarration}
+          prefix={prefix}
+          onPrefixChange={setPrefix}
           llmConfigured={Boolean(health?.llm_configured)}
-          onGenerateNarration={handleGenerateNarration}
-          ttsVoice={ttsVoice}
-          onTtsVoiceChange={setTtsVoice}
-          ttsVoices={health?.tts_voices}
-          ttsConfigured={Boolean(health?.tts_configured)}
-          ttsProvider={health?.tts_provider}
-          generatingTts={generatingTts}
-          onGenerateTtsAll={() => handleGenerateTts(null)}
-          transitionType={transitionType}
-          onTransitionTypeChange={setTransitionType}
-          burnSubtitles={burnSubtitles}
-          onBurnSubtitlesChange={setBurnSubtitles}
-          autoAlignTts={autoAlignTts}
-          onAutoAlignTtsChange={setAutoAlignTts}
-          audioFiles={audioFiles}
-          bgmFilename={bgmFilename}
-          onBgmFilenameChange={setBgmFilename}
-          bgmVolume={bgmVolume}
-          onBgmVolumeChange={setBgmVolume}
-          onUploadAudio={handleUploadAudio}
-          onRunBatch={handleRunBatch}
-          onCompose={handleCompose}
-          batchDisabled={mode !== 'storyboard' || batchRunning || shots.length === 0}
-          composeDisabled={mode !== 'storyboard' || readyCount === 0 || composing}
-          batchRunning={batchRunning}
-          composing={composing}
-          shotCount={shots.length}
-          readyCount={readyCount}
+          generatingStoryboard={generatingStoryboard}
+          onStartWithAi={handleGenerateStoryboard}
+          onCreateBlank={createBlankProject}
+          projects={historyProjects}
+          compositions={historyComps}
+          onOpenProject={(pid) => openProjectById(pid)}
+          onDeleteProject={async (pid) => {
+            const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`, { method: 'DELETE' });
+            if (r.ok) {
+              if (pid === projectId) setProjectId(null);
+              fetchLists();
+              pushToast('已删除项目记录', 'info');
+            }
+          }}
+          onPlayComposition={handlePlayComposition}
+          onDeleteComposition={async (cid) => {
+            const r = await fetch(`/api/compositions/${encodeURIComponent(cid)}`, { method: 'DELETE' });
+            if (r.ok) {
+              fetchLists();
+              pushToast('已删除成片及磁盘文件', 'info');
+            }
+          }}
         />
-
-        <section className="flex flex-col gap-3.5 min-w-0">
-          {mode === 'video' ? (
-            <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2.5 text-[13px] text-amber-200">
-                <Clapperboard className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>
-                  <strong>音画短片模式（MiniMax H3）</strong> 将在 Milestone 2 接入统一串行队列，当前请先使用「图文分镜模式」生图与运镜合成。
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('storyboard');
-                  scheduleSave();
-                }}
-                className="rounded-lg border border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25 px-3 py-1.5 text-xs font-medium text-amber-100 cursor-pointer transition-colors"
-              >
-                切回图文分镜
-              </button>
-            </div>
-          ) : null}
-
-          <div className="rounded-2xl border border-slate-800/90 bg-[#111827]/90 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-3 text-[13px] text-slate-400">
-              <span>
-                共 <strong className="text-slate-100 tabular-nums">{shots.length}</strong> 镜
-              </span>
-              <span className="text-slate-700">·</span>
-              <span>
-                已出图 <strong className="text-emerald-400 tabular-nums">{readyCount}</strong> 镜
-              </span>
-              <span className="text-slate-700">·</span>
-              <span className="text-xs text-slate-500">
-                画幅 {aspect.width}×{aspect.height}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <SegmentedControl
-                size="xs"
-                variant="subtle"
-                value={viewMode}
-                onChange={setViewMode}
-                options={[
-                  { value: 'list', label: '精编', icon: LayoutList, title: '精编列表视图' },
-                  { value: 'grid', label: '故事板', icon: LayoutGrid, title: '故事板网格视图' },
-                ]}
-              />
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShots((prev) => [...prev, buildShot('', prev.length)]);
-                  scheduleSave();
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 text-blue-400" />
-                <span>新增分镜</span>
-              </button>
-            </div>
-          </div>
-
-          <ComposePanel
-            state={composeState}
-            onClose={() => setComposeState((prev) => ({ ...prev, visible: false }))}
+      ) : (
+        <>
+          <StudioStepper
+            activeStep={activeStep}
+            onStepChange={setActiveStep}
+            onGoHome={() => setActiveView('home')}
+            shotCount={shots.length}
+            readyCount={readyCount}
+            ttsCount={ttsCount}
+            hasVideo={Boolean(composeState.videoUrl)}
           />
 
-          <div
-            className={
-              viewMode === 'grid'
-                ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5'
-                : 'flex flex-col gap-3'
-            }
-          >
-            {shots.map((shot, idx) => (
-              <ShotCard
-                key={shot.uid}
-                shot={shot}
-                index={idx}
-                total={shots.length}
-                aspect={aspect}
-                mode={mode}
-                viewMode={viewMode}
-                batchRunning={batchRunning}
-                ttsBusy={generatingTts || ttsBusyUid === shot.uid}
-                onChangePrompt={(val) => {
-                  setShots((prev) =>
-                    prev.map((s) => (s.uid === shot.uid ? { ...s, prompt: val } : s))
-                  );
-                  scheduleSave();
-                }}
-                onChangeNarration={(val) => {
-                  setShots((prev) =>
-                    prev.map((s) =>
-                      s.uid === shot.uid
-                        ? { ...s, narration: val, ttsFilename: '', ttsDuration: 0 }
-                        : s
-                    )
-                  );
-                  scheduleSave();
-                }}
-                onChangeMotion={(val) => {
-                  setShots((prev) =>
-                    prev.map((s) => (s.uid === shot.uid ? { ...s, motion: val } : s))
-                  );
-                  scheduleSave();
-                }}
-                onChangeDuration={(val) => {
-                  setShots((prev) =>
-                    prev.map((s) => (s.uid === shot.uid ? { ...s, duration: val } : s))
-                  );
-                  scheduleSave();
-                }}
-                onMoveUp={() => {
-                  if (idx === 0) return;
-                  setShots((prev) => {
-                    const next = [...prev];
-                    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                    return next;
-                  });
-                  scheduleSave();
-                }}
-                onMoveDown={() => {
-                  if (idx === shots.length - 1) return;
-                  setShots((prev) => {
-                    const next = [...prev];
-                    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                    return next;
-                  });
-                  scheduleSave();
-                }}
-                onDuplicate={() => {
-                  setShots((prev) => {
-                    const clone = buildShot(shot.prompt, idx + 1, shot.narration || '');
-                    const next = [...prev];
-                    next.splice(idx + 1, 0, clone);
-                    return next;
-                  });
-                  scheduleSave();
-                }}
-                onDelete={() => {
-                  setShots((prev) => prev.filter((s) => s.uid !== shot.uid));
-                  scheduleSave();
-                }}
-                onReroll={() => handleRerollShot(shot.uid)}
-                onGenerateTts={() => handleGenerateTts(shot.uid)}
-                onUploadImage={(file) => handleUploadShotImage(shot.uid, file)}
-                onPreview={setLightboxSrc}
-              />
-            ))}
-          </div>
-        </section>
-      </main>
+          {activeStep === 1 ? (
+            <StepOneScript
+              title={title}
+              onTitleChange={(v) => {
+                setTitle(v);
+                scheduleSave();
+              }}
+              storyIdea={storyIdea}
+              onStoryIdeaChange={setStoryIdea}
+              aiShotCount={aiShotCount}
+              onAiShotCountChange={setAiShotCount}
+              generatingStoryboard={generatingStoryboard}
+              onGenerateStoryboard={handleGenerateStoryboard}
+              llmConfigured={Boolean(health?.llm_configured)}
+              prefix={prefix}
+              onPrefixChange={(v) => {
+                setPrefix(v);
+                scheduleSave();
+              }}
+              customChips={customChips}
+              onAddCustomChip={(label, chipPrefix) => {
+                const next = [...customChips, { label, prefix: chipPrefix }];
+                setCustomChips(next);
+                localStorage.setItem(CUSTOM_CHIPS_KEY, JSON.stringify(next));
+                pushToast(`已保存风格胶囊「${label}」`, 'success');
+              }}
+              onRemoveCustomChip={(idx) => {
+                const next = customChips.filter((_, i) => i !== idx);
+                setCustomChips(next);
+                localStorage.setItem(CUSTOM_CHIPS_KEY, JSON.stringify(next));
+                pushToast('已移除自定义胶囊', 'info');
+              }}
+              aspectValue={aspectValue}
+              onAspectChange={(v) => {
+                setAspectValue(v);
+                scheduleSave();
+              }}
+              seed={seed}
+              onSeedChange={(v) => {
+                setSeed(v);
+                scheduleSave();
+              }}
+              onRandomSeed={() => {
+                setSeed(randomSeed());
+                scheduleSave();
+              }}
+              autoRandomize={autoRandomize}
+              onAutoRandomizeChange={setAutoRandomize}
+              negativePrompt={negativePrompt}
+              onNegativeChange={(v) => {
+                setNegativePrompt(v);
+                scheduleSave();
+              }}
+              narrationStyle={narrationStyle}
+              onNarrationStyleChange={setNarrationStyle}
+              generatingNarration={generatingNarration}
+              onGenerateNarration={handleGenerateNarration}
+              shots={shots}
+              onAddShot={addShot}
+              onChangeShotPrompt={updateShotPrompt}
+              onChangeShotNarration={updateShotNarration}
+              onMoveShotUp={moveShotUp}
+              onMoveShotDown={moveShotDown}
+              onDuplicateShot={(idx) => duplicateShot(idx, shots[idx])}
+              onDeleteShot={deleteShot}
+              onNextStep={() => setActiveStep(2)}
+            />
+          ) : activeStep === 2 ? (
+            <StepTwoProduction
+              shots={shots}
+              aspect={aspect}
+              mode={mode}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              ttsVoice={ttsVoice}
+              onTtsVoiceChange={setTtsVoice}
+              ttsVoices={health?.tts_voices}
+              ttsConfigured={Boolean(health?.tts_configured)}
+              ttsProvider={health?.tts_provider}
+              generatingTts={generatingTts}
+              ttsBusyUid={ttsBusyUid}
+              onGenerateTtsAll={() => handleGenerateTts(null)}
+              onGenerateTtsSingle={(uid) => handleGenerateTts(uid)}
+              batchRunning={batchRunning}
+              onRunBatch={handleRunBatch}
+              readyCount={readyCount}
+              ttsCount={ttsCount}
+              onAddShot={addShot}
+              onChangePrompt={updateShotPrompt}
+              onChangeNarration={updateShotNarration}
+              onChangeMotion={updateShotMotion}
+              onChangeDuration={updateShotDuration}
+              onMoveUp={moveShotUp}
+              onMoveDown={moveShotDown}
+              onDuplicate={duplicateShot}
+              onDelete={deleteShot}
+              onReroll={handleRerollShot}
+              onUploadImage={handleUploadShotImage}
+              onPreview={setLightboxSrc}
+              onPrevStep={() => setActiveStep(1)}
+              onNextStep={() => setActiveStep(3)}
+            />
+          ) : (
+            <StepThreeCompose
+              shots={shots}
+              aspect={aspect}
+              readyCount={readyCount}
+              ttsCount={ttsCount}
+              composeState={composeState}
+              onCloseCompose={() => setComposeState((prev) => ({ ...prev, visible: false }))}
+              transitionType={transitionType}
+              onTransitionTypeChange={setTransitionType}
+              burnSubtitles={burnSubtitles}
+              onBurnSubtitlesChange={setBurnSubtitles}
+              autoAlignTts={autoAlignTts}
+              onAutoAlignTtsChange={setAutoAlignTts}
+              audioFiles={audioFiles}
+              bgmFilename={bgmFilename}
+              onBgmFilenameChange={setBgmFilename}
+              bgmVolume={bgmVolume}
+              onBgmVolumeChange={setBgmVolume}
+              onUploadAudio={handleUploadAudio}
+              composing={composing}
+              onCompose={handleCompose}
+              onChangeMotion={updateShotMotion}
+              onChangeDuration={updateShotDuration}
+              onPrevStep={() => setActiveStep(2)}
+            />
+          )}
+        </>
+      )}
 
       <HistoryDrawer
         open={drawerOpen}
@@ -1140,16 +1229,7 @@ export default function App() {
         projects={historyProjects}
         compositions={historyComps}
         onRefresh={fetchLists}
-        onOpenProject={async (pid) => {
-          const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
-          const data = await r.json();
-          if (r.ok && data.project) {
-            applyProjectRecord(data.project);
-            await restoreCompositionForProject(data.project.id);
-            setDrawerOpen(false);
-            pushToast(`已切换到项目：${data.project.title}`, 'info');
-          }
-        }}
+        onOpenProject={(pid) => openProjectById(pid)}
         onDeleteProject={async (pid) => {
           const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`, { method: 'DELETE' });
           if (r.ok) {
@@ -1158,40 +1238,8 @@ export default function App() {
             pushToast('已删除项目记录', 'info');
           }
         }}
-        onCreateBlankProject={async () => {
-          const blankShots = [buildShot('', 0), buildShot('', 1)];
-          const nextState = {
-            projectId: '',
-            title: '新建分镜项目',
-            mode: 'storyboard',
-            prefix: '',
-            negativePrompt,
-            seed,
-            aspectValue,
-            shots: blankShots,
-          };
-          setProjectId(null);
-          setTitle(nextState.title);
-          setPrefix('');
-          setShots(blankShots);
-          setComposeState((prev) => ({ ...prev, visible: false, videoUrl: '' }));
-          await saveProjectNow(nextState);
-          fetchLists();
-          setDrawerOpen(false);
-          pushToast('已创建空白分镜项目', 'success');
-        }}
-        onPlayComposition={(c) => {
-          setComposeState({
-            visible: true,
-            done: 1,
-            total: 1,
-            stage: `成片就绪 · ${c.width}×${c.height} · ${c.duration}s · 编码器 ${c.encoder || 'h264'}`,
-            videoUrl: c.video_url,
-            filename: c.filename,
-            cacheBust: Date.now(),
-          });
-          setDrawerOpen(false);
-        }}
+        onCreateBlankProject={createBlankProject}
+        onPlayComposition={handlePlayComposition}
         onDeleteComposition={async (cid) => {
           const r = await fetch(`/api/compositions/${encodeURIComponent(cid)}`, { method: 'DELETE' });
           if (r.ok) {

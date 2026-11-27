@@ -380,7 +380,7 @@ export default function ShotCard({
             rows={2}
             value={shot.narration || ''}
             onChange={(e) => onChangeNarration(e.target.value)}
-            placeholder="填写这一镜的中文旁白（可在左侧「旁白与成片」Tab 一键由 DeepSeek 生成）…"
+            placeholder="填写这一镜的中文旁白（可在 Step 1「AI 重写旁白」统一生成）…"
             className="w-full bg-transparent text-[13.5px] text-slate-100 placeholder-slate-500 focus:outline-none resize-none leading-relaxed"
           />
         </div>
