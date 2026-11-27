@@ -128,4 +128,18 @@ export const DURATION_OPTIONS = [
   { value: 5, label: '5s' },
 ];
 
+export const NARRATION_STYLES = [
+  { value: '绘本故事', label: '绘本故事', badge: '温暖口语' },
+  { value: '科普解说', label: '科普解说', badge: '清晰干练' },
+  { value: '电影旁白', label: '电影旁白', badge: '克制抒情' },
+  { value: '幽默吐槽', label: '轻松日常', badge: '活泼俏皮' },
+];
+
+export const TRANSITION_OPTIONS = [
+  { value: 'fade', label: '淡入淡出', badge: 'Fade' },
+  { value: 'dissolve', label: '交叉溶解', badge: 'Dissolve' },
+  { value: 'wipeleft', label: '平滑擦除', badge: 'Wipe' },
+  { value: 'none', label: '直接硬切', badge: 'Cut' },
+];
+
 export const MOTION_CYCLE = ['zoom_in', 'pan_right', 'zoom_out', 'pan_left'];

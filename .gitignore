@@ -1,6 +1,11 @@
 # Generated outputs (images, videos, concat lists, sqlite db)
 outputs/
 
+# Secrets / Environment variables
+.env
+.env.*
+!.env.example
+
 # Frontend dependencies & build artifacts
 frontend/node_modules/
 web/dist/

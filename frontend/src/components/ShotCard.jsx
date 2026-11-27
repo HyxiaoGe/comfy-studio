@@ -1,6 +1,9 @@
+import { useRef } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  Captions,
+  Copy,
   Download,
   Image as ImageIcon,
   Loader2,
@@ -10,6 +13,7 @@ import {
   Pause,
   RefreshCw,
   Trash2,
+  Upload,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -41,14 +45,18 @@ export default function ShotCard({
   mode,
   batchRunning,
   onChangePrompt,
+  onChangeNarration,
   onChangeMotion,
   onChangeDuration,
   onMoveUp,
   onMoveDown,
+  onDuplicate,
   onDelete,
   onReroll,
+  onUploadImage,
   onPreview,
 }) {
+  const imgInputRef = useRef(null);
   const isBusy = shot.status === 'queued' || shot.status === 'running';
   const statusInfo = STATUS_STYLE[shot.status] || STATUS_STYLE.idle;
   const imgSrc = shot.filename
@@ -62,6 +70,18 @@ export default function ShotCard({
         className="relative rounded-xl border border-slate-800 bg-[#090d14] overflow-hidden flex items-center justify-center"
         style={{ aspectRatio: `${aspect.width} / ${aspect.height}` }}
       >
+        <input
+          ref={imgInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onUploadImage(file);
+            e.target.value = '';
+          }}
+        />
+
         {shot.filename ? (
           <>
             <img
@@ -70,17 +90,27 @@ export default function ShotCard({
               onClick={() => onPreview(imgSrc)}
               className="w-full h-full object-cover cursor-zoom-in transition-transform duration-300 group-hover:scale-[1.015]"
             />
-            <button
-              type="button"
-              onClick={() => onPreview(imgSrc)}
-              title="查看大图"
-              className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 rounded-lg bg-slate-950/75 border border-white/10 p-1.5 text-slate-200 hover:bg-slate-900 transition-opacity cursor-pointer"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
+            <div className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 flex items-center gap-1 transition-opacity">
+              <button
+                type="button"
+                onClick={() => imgInputRef.current?.click()}
+                title="上传本地图替换"
+                className="rounded-lg bg-slate-950/80 border border-white/10 p-1.5 text-slate-200 hover:bg-slate-900 cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreview(imgSrc)}
+                title="查看大图"
+                className="rounded-lg bg-slate-950/80 border border-white/10 p-1.5 text-slate-200 hover:bg-slate-900 cursor-pointer"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 pointer-events-none">
               <span className="pointer-events-auto rounded-md bg-slate-950/80 backdrop-blur-sm border border-white/10 px-2 py-0.5 text-[11px] tabular-nums text-slate-200">
-                seed {shot.seed ?? '-'}
+                {shot.seed != null ? `seed ${shot.seed}` : '本地上传'}
               </span>
               <a
                 href={`/results/${encodeURIComponent(shot.filename)}`}
@@ -94,9 +124,17 @@ export default function ShotCard({
             </div>
           </>
         ) : (
-          <div className="flex flex-col items-center gap-1.5 text-slate-500 px-4 text-center">
+          <div className="flex flex-col items-center gap-2 text-slate-500 px-4 text-center">
             <ImageIcon className="w-6 h-6 opacity-50" />
             <span className="text-xs">分镜 #{String(index + 1).padStart(2, '0')} 待生成</span>
+            <button
+              type="button"
+              onClick={() => imgInputRef.current?.click()}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#111827] hover:bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer"
+            >
+              <Upload className="w-3 h-3" />
+              <span>或上传本地图</span>
+            </button>
           </div>
         )}
 
@@ -109,7 +147,7 @@ export default function ShotCard({
       </div>
 
       {/* Right Editor & Controls */}
-      <div className="flex flex-col gap-2.5 min-w-0">
+      <div className="flex flex-col gap-2 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-mono font-bold text-blue-300">
@@ -143,6 +181,15 @@ export default function ShotCard({
             </button>
             <button
               type="button"
+              onClick={onDuplicate}
+              disabled={batchRunning}
+              title="复制此分镜"
+              className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-700 disabled:opacity-35 disabled:cursor-not-allowed p-1.5 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
               onClick={onDelete}
               disabled={batchRunning}
               title="删除此分镜"
@@ -154,12 +201,24 @@ export default function ShotCard({
         </div>
 
         <textarea
-          rows={3}
+          rows={2}
           value={shot.prompt}
           onChange={(e) => onChangePrompt(e.target.value)}
-          placeholder="描述本镜的景别、主体动作、光线与环境细节…"
+          placeholder="画面提示词：描述本镜景别、主体动作、光线与环境细节…"
           className="w-full rounded-xl border border-slate-800 bg-[#0c121e] px-3 py-2 text-[13px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition resize-y leading-relaxed"
         />
+
+        {/* Chinese Narration / Subtitle line */}
+        <div className="flex items-center gap-2 rounded-lg border border-slate-800/90 bg-[#090d14] px-2.5 py-1.5 focus-within:border-indigo-500/70 transition-colors">
+          <Captions className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          <input
+            type="text"
+            value={shot.narration || ''}
+            onChange={(e) => onChangeNarration(e.target.value)}
+            placeholder="中文解说词 / 底部字幕（可手动填写或由上方 DeepSeek 一键生成）"
+            className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500 focus:outline-none"
+          />
+        </div>
 
         {shot.error ? (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs text-rose-300">

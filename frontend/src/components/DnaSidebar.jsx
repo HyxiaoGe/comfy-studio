@@ -1,15 +1,26 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Ban,
   BookmarkPlus,
   Dices,
   Film,
+  Loader2,
+  Music,
   Palette,
   RotateCcw,
+  SlidersHorizontal,
   Sparkles,
+  Upload,
+  Wand2,
   X,
 } from 'lucide-react';
-import { ASPECT_RATIOS, STORY_PRESETS, STYLE_CHIPS } from '../data/presets';
+import {
+  ASPECT_RATIOS,
+  NARRATION_STYLES,
+  STORY_PRESETS,
+  STYLE_CHIPS,
+  TRANSITION_OPTIONS,
+} from '../data/presets';
 import SelectDropdown from './ui/SelectDropdown';
 import SegmentedControl from './ui/SegmentedControl';
 import ToggleSwitch from './ui/ToggleSwitch';
@@ -36,6 +47,21 @@ export default function DnaSidebar({
   onAutoRandomizeChange,
   negativePrompt,
   onNegativeChange,
+  narrationStyle,
+  onNarrationStyleChange,
+  generatingNarration,
+  llmConfigured,
+  onGenerateNarration,
+  transitionType,
+  onTransitionTypeChange,
+  burnSubtitles,
+  onBurnSubtitlesChange,
+  audioFiles,
+  bgmFilename,
+  onBgmFilenameChange,
+  bgmVolume,
+  onBgmVolumeChange,
+  onUploadAudio,
   onRunBatch,
   onCompose,
   batchDisabled,
@@ -44,12 +70,22 @@ export default function DnaSidebar({
   composing,
 }) {
   const [chipName, setChipName] = useState('');
+  const audioInputRef = useRef(null);
 
   const presetOptions = STORY_PRESETS.map((p) => ({
     value: p.id,
     label: p.name,
     badge: p.badge,
   }));
+
+  const bgmOptions = [
+    { value: '', label: '无背景音乐', badge: '静音' },
+    ...audioFiles.map((f) => ({
+      value: f.filename,
+      label: f.filename,
+      badge: `${Math.max(0.1, f.size / (1024 * 1024)).toFixed(1)} MB`,
+    })),
+  ];
 
   const saveBadge =
     saveState === 'saving'
@@ -66,7 +102,7 @@ export default function DnaSidebar({
   };
 
   return (
-    <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 shadow-xl shadow-black/40 lg:sticky lg:top-[68px] flex flex-col gap-4">
+    <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 shadow-xl shadow-black/40 lg:sticky lg:top-[68px] flex flex-col gap-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
           <Palette className="w-4 h-4 text-blue-400" />
@@ -136,7 +172,6 @@ export default function DnaSidebar({
           className="w-full rounded-lg border border-slate-700/80 bg-[#0c121e] px-3 py-2 text-[13px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition resize-y leading-relaxed"
         />
 
-        {/* Chips */}
         <div className="flex flex-wrap gap-1.5 mt-2">
           {STYLE_CHIPS.map((c) => (
             <button
@@ -197,6 +232,47 @@ export default function DnaSidebar({
         </div>
       </div>
 
+      {/* DeepSeek Narration Generator */}
+      <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/5 p-3 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-200">
+            <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
+            <span>DeepSeek 中文解说词</span>
+          </span>
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+              llmConfigured
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+            }`}
+          >
+            {llmConfigured ? 'API 已就绪' : '未配置 Key'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <SelectDropdown
+            size="sm"
+            className="w-[126px] shrink-0"
+            value={narrationStyle}
+            onChange={onNarrationStyleChange}
+            options={NARRATION_STYLES}
+          />
+          <button
+            type="button"
+            onClick={onGenerateNarration}
+            disabled={generatingNarration}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-600/25 hover:bg-indigo-600/40 disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-indigo-100 transition-colors cursor-pointer"
+          >
+            {generatingNarration ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="w-3.5 h-3.5" />
+            )}
+            <span>{generatingNarration ? '生成解说词中…' : 'AI 一键生成旁白'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Aspect Ratio Segmented Control */}
       <div>
         <div className="flex items-baseline justify-between mb-1.5">
@@ -220,7 +296,7 @@ export default function DnaSidebar({
       </div>
 
       {/* Seed + Toggle */}
-      <div className="space-y-2.5">
+      <div className="space-y-2">
         <div className="flex items-baseline justify-between">
           <label htmlFor="dna-seed" className="text-xs font-semibold text-slate-300">
             全局种子（Seed）
@@ -250,6 +326,78 @@ export default function DnaSidebar({
           label="批量生成前自动换新种子"
         />
       </div>
+
+      {/* Compose & Audio Settings */}
+      <Collapsible title="成片字幕、转场与配乐 (BGM)" icon={SlidersHorizontal}>
+        <div className="space-y-3 pt-1">
+          <ToggleSwitch
+            checked={burnSubtitles}
+            onChange={onBurnSubtitlesChange}
+            label="烧录底部中文字幕"
+            description="使用每张分镜卡中的解说词"
+          />
+
+          <div>
+            <div className="text-[11px] font-medium text-slate-400 mb-1">转场效果</div>
+            <SelectDropdown
+              size="sm"
+              value={transitionType}
+              onChange={onTransitionTypeChange}
+              options={TRANSITION_OPTIONS}
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400">
+                <Music className="w-3 h-3 text-cyan-400" />
+                <span>背景音乐 (BGM)</span>
+              </span>
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept=".mp3,.wav,.m4a,.ogg,.flac"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUploadAudio(file);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => audioInputRef.current?.click()}
+                className="inline-flex items-center gap-1 text-[11px] text-cyan-300 hover:text-cyan-200 cursor-pointer"
+              >
+                <Upload className="w-3 h-3" />
+                <span>上传音频</span>
+              </button>
+            </div>
+            <SelectDropdown
+              size="sm"
+              value={bgmFilename}
+              onChange={onBgmFilenameChange}
+              options={bgmOptions}
+            />
+            {bgmFilename ? (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 shrink-0">音量</span>
+                <input
+                  type="range"
+                  min={5}
+                  max={100}
+                  value={Math.round(bgmVolume * 100)}
+                  onChange={(e) => onBgmVolumeChange(Number(e.target.value) / 100)}
+                  className="flex-1 accent-cyan-400 cursor-pointer"
+                />
+                <span className="text-[11px] tabular-nums text-slate-300 w-8 text-right">
+                  {Math.round(bgmVolume * 100)}%
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </Collapsible>
 
       {/* Collapsible Negative Prompt */}
       <Collapsible title="全局负提示词 (Negative Prompt)" icon={Ban}>

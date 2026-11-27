@@ -45,7 +45,16 @@ export default function App() {
   const [aspectValue, setAspectValue] = useState('1344x768');
   const [shots, setShots] = useState([]);
   const [customChips, setCustomChips] = useState(() => loadCustomChips());
-  const [saveState, setSaveState] = useState('saved'); // saved | saving | error
+  const [saveState, setSaveState] = useState('saved');
+
+  // DeepSeek narration & compose audio/subtitle options
+  const [narrationStyle, setNarrationStyle] = useState('绘本故事');
+  const [generatingNarration, setGeneratingNarration] = useState(false);
+  const [transitionType, setTransitionType] = useState('fade');
+  const [burnSubtitles, setBurnSubtitles] = useState(true);
+  const [audioFiles, setAudioFiles] = useState([]);
+  const [bgmFilename, setBgmFilename] = useState('');
+  const [bgmVolume, setBgmVolume] = useState(0.32);
 
   const [health, setHealth] = useState(null);
   const [gpuProgress, setGpuProgress] = useState({ text: '显卡队列：空闲', done: 0, total: 1, busy: false });
@@ -71,7 +80,6 @@ export default function App() {
   const saveTimerRef = useRef(null);
   const initializedRef = useRef(false);
 
-  // Keep latest state in a ref for async callbacks & debounced saves
   const stateRef = useRef({});
   stateRef.current = {
     projectId,
@@ -90,9 +98,10 @@ export default function App() {
   );
 
   const buildShot = useCallback(
-    (prompt = '', idx = 0) => ({
+    (prompt = '', idx = 0, narration = '') => ({
       uid: nextUid(),
       prompt,
+      narration,
       motion: MOTION_CYCLE[idx % MOTION_CYCLE.length],
       duration: 4,
       filename: '',
@@ -121,6 +130,7 @@ export default function App() {
       shots: (cur.shots || []).map((s) => ({
         uid: s.uid,
         prompt: s.prompt,
+        narration: s.narration || '',
         motion: s.motion,
         duration: s.duration,
         filename: s.filename || '',
@@ -161,10 +171,15 @@ export default function App() {
 
   const fetchLists = useCallback(async () => {
     try {
-      const [pr, cr] = await Promise.all([fetch('/api/projects'), fetch('/api/compositions')]);
-      const [pd, cd] = await Promise.all([pr.json(), cr.json()]);
+      const [pr, cr, ar] = await Promise.all([
+        fetch('/api/projects'),
+        fetch('/api/compositions'),
+        fetch('/api/audio'),
+      ]);
+      const [pd, cd, ad] = await Promise.all([pr.json(), cr.json(), ar.json()]);
       if (pr.ok) setHistoryProjects(pd.projects || []);
       if (cr.ok) setHistoryComps(cd.compositions || []);
+      if (ar.ok) setAudioFiles(ad.files || []);
     } catch {
       // ignore
     }
@@ -212,6 +227,7 @@ export default function App() {
       return {
         uid: s.uid || `shot_${uidRef.current++}`,
         prompt: s.prompt || '',
+        narration: s.narration || '',
         motion: s.motion || MOTION_CYCLE[idx % MOTION_CYCLE.length],
         duration: Number(s.duration) || 4,
         filename: s.filename || '',
@@ -371,7 +387,6 @@ export default function App() {
     [pushToast, refreshHealth, saveProjectNow]
   );
 
-  // Initial load from SQLite
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -438,6 +453,93 @@ export default function App() {
     const id = setInterval(refreshHealth, 8000);
     return () => clearInterval(id);
   }, [refreshHealth]);
+
+  const handleGenerateNarration = async () => {
+    if (!shots.length) return;
+    setGeneratingNarration(true);
+    try {
+      const r = await fetch('/api/narration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          prefix,
+          style: narrationStyle,
+          shots: shots.map((s) => ({ prompt: s.prompt, duration: s.duration })),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const arr = data.narrations || [];
+      setShots((prev) =>
+        prev.map((s, idx) => ({
+          ...s,
+          narration: typeof arr[idx] === 'string' ? arr[idx] : s.narration,
+        }))
+      );
+      setTimeout(() => saveProjectNow(), 50);
+      pushToast(`已用 ${data.model || 'DeepSeek'} 生成 ${arr.length} 条中文解说词`, 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    } finally {
+      setGeneratingNarration(false);
+    }
+  };
+
+  const handleUploadAudio = async (file) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const r = await fetch('/api/upload-audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Filename': encodeURIComponent(file.name),
+        },
+        body: buf,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      await fetchLists();
+      setBgmFilename(data.filename);
+      pushToast(`已上传背景音乐：${data.filename}`, 'success');
+    } catch (e) {
+      pushToast(`上传失败：${e.message}`, 'error');
+    }
+  };
+
+  const handleUploadShotImage = async (uid, file) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const r = await fetch('/api/upload-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Filename': encodeURIComponent(file.name),
+        },
+        body: buf,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setShots((prev) =>
+        prev.map((s) =>
+          s.uid === uid
+            ? {
+                ...s,
+                filename: data.filename,
+                seed: null,
+                imgVer: (s.imgVer || 0) + 1,
+                status: 'ready',
+                error: '',
+              }
+            : s
+        )
+      );
+      setTimeout(() => saveProjectNow(), 50);
+      pushToast('已替换为本地图片', 'success');
+    } catch (e) {
+      pushToast(`图片上传失败：${e.message}`, 'error');
+    }
+  };
 
   const handleRunBatch = async () => {
     const activeShots = shots.filter((s) => s.prompt.trim().length > 0);
@@ -616,11 +718,16 @@ export default function App() {
             filename: s.filename,
             motion: s.motion,
             duration: s.duration,
+            narration: s.narration || '',
           })),
           width: aspect.width,
           height: aspect.height,
           fps: 30,
-          transition: 0.5,
+          transition: transitionType === 'none' ? 0 : 0.5,
+          transition_type: transitionType,
+          burn_subtitles: burnSubtitles,
+          bgm_filename: bgmFilename,
+          bgm_volume: bgmVolume,
         }),
       });
       const data = await r.json();
@@ -693,7 +800,7 @@ export default function App() {
         historyCount={historyProjects.length + historyComps.length}
       />
 
-      <main className="max-w-[1520px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[376px_minmax(0,1fr)] gap-5 items-start">
+      <main className="max-w-[1520px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[384px_minmax(0,1fr)] gap-5 items-start">
         <DnaSidebar
           title={title}
           onTitleChange={(v) => {
@@ -743,6 +850,21 @@ export default function App() {
             setNegativePrompt(v);
             scheduleSave();
           }}
+          narrationStyle={narrationStyle}
+          onNarrationStyleChange={setNarrationStyle}
+          generatingNarration={generatingNarration}
+          llmConfigured={Boolean(health?.llm_configured)}
+          onGenerateNarration={handleGenerateNarration}
+          transitionType={transitionType}
+          onTransitionTypeChange={setTransitionType}
+          burnSubtitles={burnSubtitles}
+          onBurnSubtitlesChange={setBurnSubtitles}
+          audioFiles={audioFiles}
+          bgmFilename={bgmFilename}
+          onBgmFilenameChange={setBgmFilename}
+          bgmVolume={bgmVolume}
+          onBgmVolumeChange={setBgmVolume}
+          onUploadAudio={handleUploadAudio}
           onRunBatch={handleRunBatch}
           onCompose={handleCompose}
           batchDisabled={mode !== 'storyboard' || batchRunning || shots.length === 0}
@@ -822,6 +944,12 @@ export default function App() {
                   );
                   scheduleSave();
                 }}
+                onChangeNarration={(val) => {
+                  setShots((prev) =>
+                    prev.map((s) => (s.uid === shot.uid ? { ...s, narration: val } : s))
+                  );
+                  scheduleSave();
+                }}
                 onChangeMotion={(val) => {
                   setShots((prev) =>
                     prev.map((s) => (s.uid === shot.uid ? { ...s, motion: val } : s))
@@ -852,11 +980,21 @@ export default function App() {
                   });
                   scheduleSave();
                 }}
+                onDuplicate={() => {
+                  setShots((prev) => {
+                    const clone = buildShot(shot.prompt, idx + 1, shot.narration || '');
+                    const next = [...prev];
+                    next.splice(idx + 1, 0, clone);
+                    return next;
+                  });
+                  scheduleSave();
+                }}
                 onDelete={() => {
                   setShots((prev) => prev.filter((s) => s.uid !== shot.uid));
                   scheduleSave();
                 }}
                 onReroll={() => handleRerollShot(shot.uid)}
+                onUploadImage={(file) => handleUploadShotImage(shot.uid, file)}
                 onPreview={setLightboxSrc}
               />
             ))}

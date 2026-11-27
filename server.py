@@ -32,10 +32,12 @@ from core.ffmpeg_composer import (  # noqa: E402
     DEFAULT_FPS,
     DEFAULT_TRANSITION,
     SUPPORTED_MOTIONS,
+    SUPPORTED_TRANSITIONS,
     compose_storyboard_video,
     detect_nvenc,
     ensure_even,
     has_ffmpeg,
+    has_subtitle_filter,
 )
 from core.image_runner import (  # noqa: E402
     DEFAULT_SEED,
@@ -43,13 +45,22 @@ from core.image_runner import (  # noqa: E402
     build_image_workflow,
     pick_prompt_nodes,
 )
+from core.llm_client import (  # noqa: E402
+    generate_narrations,
+    get_llm_config,
+    is_llm_configured,
+    load_dotenv,
+)
 from core.storage import StudioStorage  # noqa: E402
+
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 COMFYUI = DEFAULT_SERVER
 WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
 WEB_DIST_DIR = os.path.join(BASE_DIR, "web", "dist")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
+AUDIO_DIR = os.path.join(BASE_DIR, "outputs", "audio")
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -184,7 +195,19 @@ def new_job(
     return job
 
 
-def new_compose_job(shots, shots_meta, width, height, fps, transition, project_id=""):
+def new_compose_job(
+    shots,
+    shots_meta,
+    width,
+    height,
+    fps,
+    transition,
+    transition_type="fade",
+    burn_subtitles=True,
+    bgm_path=None,
+    bgm_volume=0.35,
+    project_id="",
+):
     cid = uuid.uuid4().hex[:12]
     cjob = {
         "id": cid,
@@ -195,6 +218,10 @@ def new_compose_job(shots, shots_meta, width, height, fps, transition, project_i
         "height": ensure_even(height, DEFAULT_HEIGHT),
         "fps": fps,
         "transition": transition,
+        "transition_type": transition_type,
+        "burn_subtitles": burn_subtitles,
+        "bgm_path": bgm_path,
+        "bgm_volume": bgm_volume,
         "status": "queued",
         "done": 0,
         "total": len(shots) + 1,
@@ -291,6 +318,10 @@ def run_compose_job(cid):
         height=cjob["height"],
         fps=cjob["fps"],
         transition=cjob["transition"],
+        transition_type=cjob.get("transition_type", "fade"),
+        burn_subtitles=cjob.get("burn_subtitles", True),
+        bgm_path=cjob.get("bgm_path"),
+        bgm_volume=cjob.get("bgm_volume", 0.35),
         progress_cb=on_progress,
     )
     with compose_lock:
@@ -365,6 +396,9 @@ def health():
         "comfyui": "ok" if check_comfyui_health(COMFYUI) else "unreachable",
         "ffmpeg": has_ffmpeg(),
         "nvenc": detect_nvenc(),
+        "subtitle_filter": has_subtitle_filter(),
+        "llm_configured": is_llm_configured(),
+        "llm_model": get_llm_config()["model"],
         "db_ready": get_store() is not None,
         "queued": job_queue.qsize(),
         "jobs": len(jobs),
@@ -502,6 +536,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "没有这个合成任务"}, 404)
             else:
                 self._json(public_compose_job(cjob))
+        elif path == "/api/audio":
+            os.makedirs(AUDIO_DIR, exist_ok=True)
+            files = []
+            for fn in sorted(os.listdir(AUDIO_DIR)):
+                fp = os.path.join(AUDIO_DIR, fn)
+                if os.path.isfile(fp) and fn.lower().endswith((".mp3", ".wav", ".m4a", ".ogg", ".flac")):
+                    files.append({
+                        "filename": fn,
+                        "url": f"/audio/{fn}",
+                        "size": os.path.getsize(fp),
+                    })
+            self._json({"files": files})
+        elif path.startswith("/audio/"):
+            name = path[len("/audio/"):]
+            if not _safe_filename(name):
+                self._json({"error": "文件名不对"}, 400)
+                return
+            ctype, _enc = mimetypes.guess_type(name)
+            self._file(os.path.join(AUDIO_DIR, name), ctype or "audio/mpeg", support_range=True)
         elif path.startswith("/results/"):
             name = path[len("/results/"):]
             if not _safe_filename(name):
@@ -533,6 +586,12 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_compose()
         elif path == "/api/projects":
             self._handle_save_project()
+        elif path == "/api/narration":
+            self._handle_narration()
+        elif path == "/api/upload-audio":
+            self._handle_upload_binary(AUDIO_DIR, (".mp3", ".wav", ".m4a", ".ogg", ".flac"), 30 * 1024 * 1024, "/audio/")
+        elif path == "/api/upload-image":
+            self._handle_upload_binary(OUT_DIR, (".png", ".jpg", ".jpeg", ".webp"), 20 * 1024 * 1024, "/results/")
         else:
             self._json({"error": "没有这个地址"}, 404)
 
@@ -552,6 +611,52 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
         else:
             self._json({"error": "没有这个地址"}, 404)
+
+    def _handle_upload_binary(self, target_dir, allowed_exts, max_bytes, url_prefix):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > max_bytes:
+            self._json({"error": f"文件大小不合法（最大 {max_bytes // (1024 * 1024)} MB）"}, 400)
+            return
+        raw_name = self.headers.get("X-Filename") or "upload"
+        try:
+            raw_name = os.path.basename(raw_name.strip())
+        except Exception:  # noqa: BLE001
+            raw_name = "upload"
+        ext = os.path.splitext(raw_name)[1].lower()
+        if ext not in allowed_exts:
+            self._json({"error": f"不支持的文件格式：{ext or '未知'}"}, 400)
+            return
+        stem = "".join(ch for ch in os.path.splitext(raw_name)[0] if ch.isalnum() or ch in ("-", "_"))[:32] or "file"
+        fname = f"{stem}_{uuid.uuid4().hex[:8]}{ext}"
+        os.makedirs(target_dir, exist_ok=True)
+        body = self.rfile.read(length)
+        with open(os.path.join(target_dir, fname), "wb") as f:
+            f.write(body)
+        self._json({"filename": fname, "url": f"{url_prefix}{fname}", "size": len(body)})
+
+    def _handle_narration(self):
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        shots = data.get("shots")
+        if not isinstance(shots, list) or not shots:
+            self._json({"error": "shots 不能为空"}, 400)
+            return
+        if len(shots) > 30:
+            self._json({"error": "单次最多生成 30 条解说词"}, 400)
+            return
+        try:
+            res = generate_narrations(
+                title=data.get("title") or "",
+                prefix=data.get("prefix") or "",
+                shots=shots,
+                style=data.get("style") or "绘本故事",
+            )
+            self._json(res)
+        except Exception as e:  # noqa: BLE001
+            code = 400 if "未配置" in str(e) else 502
+            self._json({"error": str(e)}, code)
 
     def _handle_save_project(self):
         data, err = self._read_json_body()
@@ -634,8 +739,19 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 dur = DEFAULT_DURATION
             dur = max(1.0, min(15.0, dur))
-            shots.append({"path": img_path, "motion": motion, "duration": dur})
-            shots_meta.append({"filename": fname, "motion": motion, "duration": dur})
+            narration = item.get("narration") if isinstance(item.get("narration"), str) else ""
+            shots.append({
+                "path": img_path,
+                "motion": motion,
+                "duration": dur,
+                "narration": narration,
+            })
+            shots_meta.append({
+                "filename": fname,
+                "motion": motion,
+                "duration": dur,
+                "narration": narration,
+            })
 
         width, height = _normalize_size(data.get("width"), data.get("height"))
         try:
@@ -648,10 +764,39 @@ class Handler(BaseHTTPRequestHandler):
             )
         except (TypeError, ValueError):
             transition = DEFAULT_TRANSITION
+        transition_type = (data.get("transition_type") or "fade").strip().lower()
+        if transition_type not in SUPPORTED_TRANSITIONS:
+            transition_type = "fade"
+        burn_subtitles = bool(data.get("burn_subtitles", True))
+        bgm_filename = data.get("bgm_filename")
+        bgm_path = None
+        if isinstance(bgm_filename, str) and bgm_filename.strip():
+            if not _safe_filename(bgm_filename.strip()):
+                self._json({"error": "BGM 文件名不合法"}, 400)
+                return
+            candidate_bgm = os.path.join(AUDIO_DIR, bgm_filename.strip())
+            if not os.path.isfile(candidate_bgm):
+                self._json({"error": f"找不到背景音乐：{bgm_filename}"}, 404)
+                return
+            bgm_path = candidate_bgm
+        try:
+            bgm_volume = float(0.35 if data.get("bgm_volume") is None else data.get("bgm_volume"))
+        except (TypeError, ValueError):
+            bgm_volume = 0.35
         project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
 
         cjob = new_compose_job(
-            shots, shots_meta, width, height, fps, transition, project_id=project_id
+            shots,
+            shots_meta,
+            width,
+            height,
+            fps,
+            transition,
+            transition_type=transition_type,
+            burn_subtitles=burn_subtitles,
+            bgm_path=bgm_path,
+            bgm_volume=bgm_volume,
+            project_id=project_id,
         )
         self._json({"compose_id": cjob["id"]}, 202)
 
@@ -671,9 +816,11 @@ def main(argv=None):
     WORKFLOW_PATH = args.workflow or os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
     OUT_DIR = args.out_dir or os.path.join(BASE_DIR, "outputs", "images")
     COMPOSED_DIR = os.path.join(BASE_DIR, "outputs", "composed")
+    AUDIO_DIR = os.path.join(BASE_DIR, "outputs", "audio")
     DB_PATH = args.db or os.path.join(BASE_DIR, "outputs", "studio.db")
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(COMPOSED_DIR, exist_ok=True)
+    os.makedirs(AUDIO_DIR, exist_ok=True)
 
     store = StudioStorage(DB_PATH)
     store.mark_interrupted_on_startup()
