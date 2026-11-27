@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
   Ban,
   BookmarkPlus,
+  Camera,
+  Check,
   Copy,
   Dices,
   Loader2,
+  Pencil,
   Plus,
   Sparkles,
   Trash2,
@@ -25,6 +28,255 @@ import Collapsible from './ui/Collapsible';
 import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
 import ToggleSwitch from './ui/ToggleSwitch';
+
+const CAMERA_FRAMING_RE =
+  /^(extreme\s+)?(wide|long|full|medium|mid|close[- ]?up|establishing|overhead|bird'?s[- ]?eye|worm'?s[- ]?eye|low[- ]?angle|high[- ]?angle|dutch[- ]?angle|eye[- ]?level|macro|portrait|top[- ]?down|side)\b/i;
+
+function splitPromptTags(prompt) {
+  return (prompt || '')
+    .split(/[,，]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function AutoGrowTextarea({ value, onChange, className = '', autoFocus = false, ...rest }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, 44)}px`;
+  }, [value]);
+
+  useEffect(() => {
+    if (autoFocus && ref.current) {
+      ref.current.focus();
+      const len = ref.current.value.length;
+      ref.current.setSelectionRange(len, len);
+    }
+  }, [autoFocus]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={onChange}
+      className={`overflow-hidden resize-none ${className}`}
+      {...rest}
+    />
+  );
+}
+
+function ScriptShotCard({
+  shot,
+  index,
+  total,
+  onChangeNarration,
+  onChangePrompt,
+  onMoveUp,
+  onMoveDown,
+  onDuplicate,
+  onDelete,
+}) {
+  const [editingPrompt, setEditingPrompt] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
+  const tags = splitPromptTags(shot.prompt);
+  const charCount = (shot.narration || '').trim().length;
+
+  const handleCopyPrompt = async (e) => {
+    e.stopPropagation();
+    const text = (shot.prompt || '').trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 1400);
+    } catch {
+      // ignore clipboard denial
+    }
+  };
+
+  return (
+    <article className="rounded-2xl border border-slate-800/90 hover:border-slate-700/80 bg-[#111827]/90 p-4 space-y-3 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-mono font-bold text-blue-300">
+            #{String(index + 1).padStart(2, '0')}
+          </span>
+          {tags.length > 0 && CAMERA_FRAMING_RE.test(tags[0]) ? (
+            <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-medium text-cyan-200">
+              <Camera className="w-3 h-3 text-cyan-400" />
+              <span>{tags[0]}</span>
+            </span>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={index === 0}
+            title="上移"
+            className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 p-1.5 text-slate-400 hover:text-slate-100 cursor-pointer"
+          >
+            <ArrowUp className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={index === total - 1}
+            title="下移"
+            className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 p-1.5 text-slate-400 hover:text-slate-100 cursor-pointer"
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDuplicate}
+            title="复制此镜"
+            className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 p-1.5 text-slate-400 hover:text-slate-100 cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title="删除此镜"
+            className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-rose-500/15 hover:border-rose-500/40 p-1.5 text-slate-400 hover:text-rose-300 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] gap-3.5 items-start">
+        {/* Left: Auto-growing Chinese Narration */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-medium text-indigo-300">
+              中文旁白 / 字幕文案
+            </label>
+            <span className="text-[10px] text-slate-500 tabular-nums">
+              {charCount > 0 ? `${charCount} 字` : '待填写'}
+            </span>
+          </div>
+          <AutoGrowTextarea
+            value={shot.narration || ''}
+            onChange={(e) => onChangeNarration(e.target.value)}
+            placeholder="填写这一镜的口语化中文旁白…"
+            className="w-full rounded-xl border border-indigo-500/25 bg-[#0c121e]/90 px-3 py-2.5 text-[13.5px] text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-400 focus:bg-[#0c121e] leading-relaxed transition-colors"
+          />
+        </div>
+
+        {/* Right: Visual Tag Pills (click to edit with AutoGrowTextarea) */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-slate-400">
+              英文生图提示词
+              <span className="text-slate-600 ml-1">· 自动拼接公共画风</span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              {shot.prompt?.trim() ? (
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  title="复制英文提示词"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
+                >
+                  {copiedPrompt ? (
+                    <>
+                      <Check className="w-2.5 h-2.5 text-emerald-400" />
+                      <span className="text-emerald-300">已复制</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-2.5 h-2.5" />
+                      <span>复制</span>
+                    </>
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setEditingPrompt((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${
+                  editingPrompt
+                    ? 'border-blue-500/50 bg-blue-500/15 text-blue-200'
+                    : 'border-slate-800 bg-[#0c121e] hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {editingPrompt ? (
+                  <>
+                    <Check className="w-2.5 h-2.5" />
+                    <span>完成</span>
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="w-2.5 h-2.5" />
+                    <span>编辑</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {editingPrompt ? (
+            <AutoGrowTextarea
+              autoFocus
+              value={shot.prompt || ''}
+              onChange={(e) => onChangePrompt(e.target.value)}
+              onBlur={() => setEditingPrompt(false)}
+              placeholder="英文景别、角色动作、光线与背景描述（用英文逗号分隔词组）…"
+              className="w-full rounded-xl border border-blue-500/60 bg-[#090d14] px-3 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none leading-relaxed"
+            />
+          ) : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setEditingPrompt(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setEditingPrompt(true);
+                }
+              }}
+              title="点击编辑提示词"
+              className="w-full min-h-[44px] rounded-xl border border-slate-800/90 hover:border-slate-700 bg-[#090d14]/85 px-2.5 py-2 cursor-text transition-colors"
+            >
+              {tags.length === 0 ? (
+                <span className="text-xs text-slate-500">
+                  点击填写英文画面描述（用逗号分隔视觉元素）…
+                </span>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag, tIdx) => {
+                    const isCamera = CAMERA_FRAMING_RE.test(tag);
+                    return (
+                      <span
+                        key={`${tIdx}_${tag.slice(0, 12)}`}
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11.5px] leading-snug ${
+                          isCamera
+                            ? 'border-cyan-500/35 bg-cyan-500/10 text-cyan-200 font-medium'
+                            : 'border-slate-700/75 bg-slate-900/90 text-slate-200'
+                        }`}
+                      >
+                        {isCamera ? <Camera className="w-3 h-3 text-cyan-400 shrink-0" /> : null}
+                        <span>{tag}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
 
 export default function StepOneScript({
   title,
@@ -361,79 +613,18 @@ export default function StepOneScript({
 
         <div className="space-y-3">
           {shots.map((shot, idx) => (
-            <article
+            <ScriptShotCard
               key={shot.uid}
-              className="rounded-2xl border border-slate-800/90 bg-[#111827]/90 p-3.5 space-y-2.5"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-mono font-bold text-blue-300">
-                  #{String(idx + 1).padStart(2, '0')}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => onMoveShotUp(idx)}
-                    disabled={idx === 0}
-                    title="上移"
-                    className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 p-1.5 text-slate-400 hover:text-slate-100 cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onMoveShotDown(idx)}
-                    disabled={idx === shots.length - 1}
-                    title="下移"
-                    className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 p-1.5 text-slate-400 hover:text-slate-100 cursor-pointer"
-                  >
-                    <ArrowDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDuplicateShot(idx)}
-                    title="复制此镜"
-                    className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-slate-800 p-1.5 text-slate-400 hover:text-slate-100 cursor-pointer"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteShot(shot.uid)}
-                    title="删除此镜"
-                    className="rounded-lg border border-slate-800 bg-[#0c121e] hover:bg-rose-500/15 hover:border-rose-500/40 p-1.5 text-slate-400 hover:text-rose-300 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-indigo-300 mb-1">
-                    中文旁白 / 字幕文案
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={shot.narration || ''}
-                    onChange={(e) => onChangeShotNarration(shot.uid, e.target.value)}
-                    placeholder="填写这一镜的口语化中文旁白…"
-                    className="w-full rounded-xl border border-indigo-500/30 bg-[#0c121e] px-3 py-2 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-400 resize-y leading-relaxed"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                    英文生图提示词（自动拼接公共前缀）
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={shot.prompt || ''}
-                    onChange={(e) => onChangeShotPrompt(shot.uid, e.target.value)}
-                    placeholder="英文景别、角色动作、光线与背景描述…"
-                    className="w-full rounded-xl border border-slate-800 bg-[#090d14] px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y leading-relaxed"
-                  />
-                </div>
-              </div>
-            </article>
+              shot={shot}
+              index={idx}
+              total={shots.length}
+              onChangeNarration={(val) => onChangeShotNarration(shot.uid, val)}
+              onChangePrompt={(val) => onChangeShotPrompt(shot.uid, val)}
+              onMoveUp={() => onMoveShotUp(idx)}
+              onMoveDown={() => onMoveShotDown(idx)}
+              onDuplicate={() => onDuplicateShot(idx)}
+              onDelete={() => onDeleteShot(shot.uid)}
+            />
           ))}
         </div>
       </section>
