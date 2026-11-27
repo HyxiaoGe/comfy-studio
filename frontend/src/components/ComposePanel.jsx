@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react';
-import { Download, Film, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, Film, Volume2, X } from 'lucide-react';
 
 export default function ComposePanel({ state, title, onClose }) {
   const videoRef = useRef(null);
+  const [autoMuted, setAutoMuted] = useState(false);
 
   useEffect(() => {
+    setAutoMuted(false);
     if (!state?.visible || !state?.videoUrl || !state?.autoPlay) return;
     const el = videoRef.current;
     if (!el) return;
@@ -12,8 +14,9 @@ export default function ComposePanel({ state, title, onClose }) {
     const p = el.play();
     if (p && typeof p.catch === 'function') {
       p.catch(() => {
-        // 浏览器若因安全策略拦截有声自动播放，降级为静音自动播放
+        // 浏览器若因安全策略拦截有声自动播放，降级为静音自动播放并提示恢复声音
         el.muted = true;
+        setAutoMuted(true);
         el.play().catch(() => {});
       });
     }
@@ -69,16 +72,35 @@ export default function ComposePanel({ state, title, onClose }) {
           />
         </div>
       ) : (
-        <div className="rounded-xl bg-black border border-slate-800 overflow-hidden flex justify-center">
+        <div className="relative rounded-xl bg-black border border-slate-800 overflow-hidden flex justify-center">
           <video
             ref={videoRef}
             key={state.videoUrl + '_' + (state.cacheBust || '')}
             src={`${state.videoUrl}?t=${state.cacheBust || 1}`}
             autoPlay={Boolean(state.autoPlay)}
+            onVolumeChange={(e) => {
+              if (!e.currentTarget.muted) setAutoMuted(false);
+            }}
             controls
             playsInline
             className="w-full max-h-[420px]"
           />
+          {autoMuted ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (videoRef.current) {
+                  videoRef.current.muted = false;
+                  videoRef.current.volume = 1;
+                }
+                setAutoMuted(false);
+              }}
+              className="absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-amber-400/50 bg-slate-950/85 hover:bg-slate-900 px-3 py-1 text-xs font-medium text-amber-200 shadow-lg cursor-pointer"
+            >
+              <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+              <span>已静音自动播放 · 点击开启声音</span>
+            </button>
+          ) : null}
         </div>
       )}
     </section>

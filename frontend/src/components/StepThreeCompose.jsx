@@ -89,6 +89,10 @@ export default function StepThreeCompose({
   onGenerateBgm,
   bgmWorkflowLoaded,
   llmConfigured,
+  ttsConfigured,
+  ttsVoice,
+  generatingTts,
+  onGenerateTtsAll,
   composing,
   onCompose,
   onChangeMotion,
@@ -140,6 +144,10 @@ export default function StepThreeCompose({
       badge: `${Math.max(0.1, f.size / (1024 * 1024)).toFixed(1)} MB`,
     })),
   ];
+
+  const narrCount = shots.filter((s) => (s.narration || '').trim().length > 0).length;
+  const missingTts = narrCount > 0 && ttsCount < narrCount;
+  const silentWarning = ttsCount === 0 && !bgmFilename;
 
   const estDuration = shots
     .filter((s) => Boolean(s.filename))
@@ -432,6 +440,36 @@ export default function StepThreeCompose({
         </div>
 
         <div className="space-y-2">
+          {missingTts || silentWarning ? (
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 space-y-2">
+              <div className="text-[11px] leading-relaxed text-amber-200">
+                {silentWarning
+                  ? `当前 ${ttsCount}/${shots.length} 镜有配音且未选背景音乐，直接合成会输出无声视频。`
+                  : `还有 ${narrCount - ttsCount} 条旁白未生成语音（${ttsCount}/${narrCount}），建议补齐后再合成。`}
+              </div>
+              {missingTts ? (
+                <button
+                  type="button"
+                  onClick={onGenerateTtsAll}
+                  disabled={generatingTts || !ttsConfigured}
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-400/45 bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-45 px-3 py-1.5 text-xs font-semibold text-amber-100 cursor-pointer transition-colors"
+                >
+                  {generatingTts ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>正在补全配音…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>立即补全 {narrCount - ttsCount} 条旁白配音 ({ttsVoice})</span>
+                    </>
+                  )}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={onCompose}

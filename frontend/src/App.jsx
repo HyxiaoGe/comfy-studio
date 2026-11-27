@@ -1469,6 +1469,10 @@ export default function App() {
               onGenerateBgm={handleGenerateBgm}
               bgmWorkflowLoaded={Boolean(health?.bgm_workflow_loaded)}
               llmConfigured={Boolean(health?.llm_configured)}
+              ttsConfigured={Boolean(health?.tts_configured)}
+              ttsVoice={ttsVoice}
+              generatingTts={generatingTts}
+              onGenerateTtsAll={() => handleGenerateTts(null)}
               composing={composing}
               onCompose={handleCompose}
               onChangeMotion={updateShotMotion}
