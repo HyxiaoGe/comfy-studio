@@ -17,6 +17,7 @@ import {
   SHOT_COUNT_OPTIONS,
   STYLE_CHIPS,
 } from '../data/presets';
+import AutoGrowTextarea from './ui/AutoGrowTextarea';
 import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
 
@@ -93,12 +94,12 @@ export default function HomePage({
               </p>
             </div>
 
-            <textarea
-              rows={3}
+            <AutoGrowTextarea
+              minHeight={88}
               value={storyIdea}
               onChange={(e) => onStoryIdeaChange(e.target.value)}
               placeholder="例如：一只怕黑的小橘猫，在夏夜跟着萤火虫学会了勇敢..."
-              className="w-full rounded-2xl border border-slate-700/80 bg-[#090e18]/90 px-4 py-3 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-y"
+              className="w-full rounded-2xl border border-slate-700/80 bg-[#090e18]/90 px-4 py-3 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             />
 
             <div className="space-y-1.5">

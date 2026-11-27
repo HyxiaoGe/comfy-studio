@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowDown,
   ArrowRight,
@@ -6,11 +6,9 @@ import {
   Ban,
   BookmarkPlus,
   Camera,
-  Check,
   Copy,
   Dices,
   Loader2,
-  Pencil,
   Plus,
   Sparkles,
   Trash2,
@@ -24,50 +22,12 @@ import {
   SHOT_COUNT_OPTIONS,
   STYLE_CHIPS,
 } from '../data/presets';
+import AutoGrowTextarea from './ui/AutoGrowTextarea';
 import Collapsible from './ui/Collapsible';
+import PromptTagsField, { CAMERA_FRAMING_RE, splitPromptTags } from './ui/PromptTagsField';
 import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
 import ToggleSwitch from './ui/ToggleSwitch';
-
-const CAMERA_FRAMING_RE =
-  /^(extreme\s+)?(wide|long|full|medium|mid|close[- ]?up|establishing|overhead|bird'?s[- ]?eye|worm'?s[- ]?eye|low[- ]?angle|high[- ]?angle|dutch[- ]?angle|eye[- ]?level|macro|portrait|top[- ]?down|side)\b/i;
-
-function splitPromptTags(prompt) {
-  return (prompt || '')
-    .split(/[,，]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function AutoGrowTextarea({ value, onChange, className = '', autoFocus = false, ...rest }) {
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.max(el.scrollHeight, 44)}px`;
-  }, [value]);
-
-  useEffect(() => {
-    if (autoFocus && ref.current) {
-      ref.current.focus();
-      const len = ref.current.value.length;
-      ref.current.setSelectionRange(len, len);
-    }
-  }, [autoFocus]);
-
-  return (
-    <textarea
-      ref={ref}
-      rows={1}
-      value={value}
-      onChange={onChange}
-      className={`overflow-hidden resize-none ${className}`}
-      {...rest}
-    />
-  );
-}
 
 function ScriptShotCard({
   shot,
@@ -80,24 +40,8 @@ function ScriptShotCard({
   onDuplicate,
   onDelete,
 }) {
-  const [editingPrompt, setEditingPrompt] = useState(false);
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
-
   const tags = splitPromptTags(shot.prompt);
   const charCount = (shot.narration || '').trim().length;
-
-  const handleCopyPrompt = async (e) => {
-    e.stopPropagation();
-    const text = (shot.prompt || '').trim();
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedPrompt(true);
-      setTimeout(() => setCopiedPrompt(false), 1400);
-    } catch {
-      // ignore clipboard denial
-    }
-  };
 
   return (
     <article className="rounded-2xl border border-slate-800/90 hover:border-slate-700/80 bg-[#111827]/90 p-4 space-y-3 transition-colors">
@@ -153,7 +97,6 @@ function ScriptShotCard({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] gap-3.5 items-start">
-        {/* Left: Auto-growing Chinese Narration */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-medium text-indigo-300">
@@ -171,108 +114,14 @@ function ScriptShotCard({
           />
         </div>
 
-        {/* Right: Visual Tag Pills (click to edit with AutoGrowTextarea) */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-medium text-slate-400">
-              英文生图提示词
-              <span className="text-slate-600 ml-1">· 自动拼接公共画风</span>
-            </span>
-            <div className="flex items-center gap-1.5">
-              {shot.prompt?.trim() ? (
-                <button
-                  type="button"
-                  onClick={handleCopyPrompt}
-                  title="复制英文提示词"
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
-                >
-                  {copiedPrompt ? (
-                    <>
-                      <Check className="w-2.5 h-2.5 text-emerald-400" />
-                      <span className="text-emerald-300">已复制</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-2.5 h-2.5" />
-                      <span>复制</span>
-                    </>
-                  )}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setEditingPrompt((v) => !v)}
-                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${
-                  editingPrompt
-                    ? 'border-blue-500/50 bg-blue-500/15 text-blue-200'
-                    : 'border-slate-800 bg-[#0c121e] hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {editingPrompt ? (
-                  <>
-                    <Check className="w-2.5 h-2.5" />
-                    <span>完成</span>
-                  </>
-                ) : (
-                  <>
-                    <Pencil className="w-2.5 h-2.5" />
-                    <span>编辑</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {editingPrompt ? (
-            <AutoGrowTextarea
-              autoFocus
-              value={shot.prompt || ''}
-              onChange={(e) => onChangePrompt(e.target.value)}
-              onBlur={() => setEditingPrompt(false)}
-              placeholder="英文景别、角色动作、光线与背景描述（用英文逗号分隔词组）…"
-              className="w-full rounded-xl border border-blue-500/60 bg-[#090d14] px-3 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none leading-relaxed"
-            />
-          ) : (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => setEditingPrompt(true)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setEditingPrompt(true);
-                }
-              }}
-              title="点击编辑提示词"
-              className="w-full min-h-[44px] rounded-xl border border-slate-800/90 hover:border-slate-700 bg-[#090d14]/85 px-2.5 py-2 cursor-text transition-colors"
-            >
-              {tags.length === 0 ? (
-                <span className="text-xs text-slate-500">
-                  点击填写英文画面描述（用逗号分隔视觉元素）…
-                </span>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {tags.map((tag, tIdx) => {
-                    const isCamera = CAMERA_FRAMING_RE.test(tag);
-                    return (
-                      <span
-                        key={`${tIdx}_${tag.slice(0, 12)}`}
-                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11.5px] leading-snug ${
-                          isCamera
-                            ? 'border-cyan-500/35 bg-cyan-500/10 text-cyan-200 font-medium'
-                            : 'border-slate-700/75 bg-slate-900/90 text-slate-200'
-                        }`}
-                      >
-                        {isCamera ? <Camera className="w-3 h-3 text-cyan-400 shrink-0" /> : null}
-                        <span>{tag}</span>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <PromptTagsField
+          value={shot.prompt || ''}
+          onChange={onChangePrompt}
+          label="英文生图提示词"
+          hint="自动拼接公共画风"
+          placeholder="点击填写英文画面描述（用逗号分隔视觉元素）…"
+          highlightCamera
+        />
       </div>
     </article>
   );
@@ -362,12 +211,12 @@ export default function StepOneScript({
             </span>
           </div>
 
-          <textarea
-            rows={3}
+          <AutoGrowTextarea
+            minHeight={64}
             value={storyIdea}
             onChange={(e) => onStoryIdeaChange(e.target.value)}
             placeholder="输入新故事创意，AI 将生成标题、画风前缀、各镜提示词与旁白…"
-            className="w-full rounded-lg border border-slate-700/80 bg-[#0c121e] px-2.5 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-y"
+            className="w-full rounded-lg border border-slate-700/80 bg-[#0c121e] px-2.5 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
           />
 
           <div className="flex flex-wrap gap-1.5">
@@ -414,19 +263,14 @@ export default function StepOneScript({
 
         {/* Common Style & Character Prefix */}
         <div>
-          <div className="flex items-baseline justify-between mb-1.5">
-            <label htmlFor="step1-prefix" className="text-xs font-semibold text-slate-300">
-              公共画风 / 主角设定（英文）
-            </label>
-            <span className="text-[11px] text-slate-500">自动拼到每镜前</span>
-          </div>
-          <textarea
-            id="step1-prefix"
-            rows={3}
+          <PromptTagsField
             value={prefix}
-            onChange={(e) => onPrefixChange(e.target.value)}
-            placeholder="统一画风 + 主角外貌英文描述…"
-            className="w-full rounded-xl border border-slate-700/80 bg-[#0c121e] px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y leading-relaxed"
+            onChange={onPrefixChange}
+            label="公共画风 / 主角设定（英文）"
+            hint="自动拼到每镜前"
+            placeholder="点击填写统一画风 + 主角外貌英文描述（逗号分隔）…"
+            tone="blue"
+            minHeight={56}
           />
 
           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -545,15 +389,15 @@ export default function StepOneScript({
               />
             </div>
 
-            <div>
-              <div className="text-xs font-medium text-slate-300 mb-1">负提示词 (Negative Prompt)</div>
-              <textarea
-                rows={3}
-                value={negativePrompt}
-                onChange={(e) => onNegativeChange(e.target.value)}
-                className="w-full rounded-lg border border-slate-800 bg-[#090d14] px-2.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 resize-y leading-relaxed"
-              />
-            </div>
+            <PromptTagsField
+              value={negativePrompt}
+              onChange={onNegativeChange}
+              label="负提示词 (Negative Prompt)"
+              placeholder="点击填写需要屏蔽的画面元素…"
+              tone="rose"
+              compact
+              minHeight={44}
+            />
           </div>
         </Collapsible>
       </aside>

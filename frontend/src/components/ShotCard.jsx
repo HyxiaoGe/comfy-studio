@@ -22,6 +22,8 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { DURATION_OPTIONS, MOTION_OPTIONS } from '../data/presets';
+import AutoGrowTextarea from './ui/AutoGrowTextarea';
+import PromptTagsField from './ui/PromptTagsField';
 import SelectDropdown from './ui/SelectDropdown';
 import SegmentedControl from './ui/SegmentedControl';
 
@@ -376,12 +378,12 @@ export default function ShotCard({
             </div>
           </div>
 
-          <textarea
-            rows={2}
+          <AutoGrowTextarea
+            minHeight={48}
             value={shot.narration || ''}
             onChange={(e) => onChangeNarration(e.target.value)}
             placeholder="填写这一镜的中文旁白（可在 Step 1「AI 重写旁白」统一生成）…"
-            className="w-full bg-transparent text-[13.5px] text-slate-100 placeholder-slate-500 focus:outline-none resize-none leading-relaxed"
+            className="w-full bg-transparent text-[13.5px] text-slate-100 placeholder-slate-500 focus:outline-none leading-relaxed"
           />
         </div>
 
@@ -403,13 +405,13 @@ export default function ShotCard({
             />
           </button>
           {promptExpanded ? (
-            <div className="px-2.5 pb-2.5 pt-1 border-t border-slate-800/70">
-              <textarea
-                rows={2}
-                value={shot.prompt}
-                onChange={(e) => onChangePrompt(e.target.value)}
-                placeholder="英文画面描述（将自动拼接左侧公共画风前缀）…"
-                className="w-full rounded-lg border border-slate-800 bg-[#090d14] px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y leading-relaxed"
+            <div className="px-2.5 pb-2.5 pt-2 border-t border-slate-800/70">
+              <PromptTagsField
+                value={shot.prompt || ''}
+                onChange={onChangePrompt}
+                placeholder="英文画面描述（将自动拼接公共画风前缀）…"
+                highlightCamera
+                compact
               />
             </div>
           ) : null}

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { DURATION_OPTIONS, MOTION_OPTIONS, TRANSITION_OPTIONS } from '../data/presets';
 import ComposePanel from './ComposePanel';
+import PromptTagsField from './ui/PromptTagsField';
 import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
 import ToggleSwitch from './ui/ToggleSwitch';
@@ -374,12 +375,13 @@ export default function StepThreeCompose({
                 ))}
               </div>
 
-              <textarea
-                rows={2}
+              <PromptTagsField
                 value={bgmTags}
-                onChange={(e) => onBgmTagsChange(e.target.value)}
-                placeholder="英文音乐风格描述（如 Warm acoustic guitar and gentle piano instrumental）"
-                className="w-full rounded-lg border border-slate-700/80 bg-[#090d14] px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 resize-y"
+                onChange={onBgmTagsChange}
+                placeholder="点击填写英文音乐风格标签（如 Warm acoustic guitar, gentle piano）"
+                tone="cyan"
+                compact
+                minHeight={42}
               />
 
               <div className="flex items-center gap-2">
