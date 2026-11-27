@@ -224,9 +224,9 @@ export default function StepOneScript({
       const tag = (e.target?.tagName || '').toLowerCase();
       if (tag === 'textarea' || tag === 'input') return;
       if (e.key === 'ArrowLeft') {
-        setActiveIndex((i) => Math.max(0, i - 1));
+        setActiveIndex((i) => (i - 1 + shots.length) % shots.length);
       } else if (e.key === 'ArrowRight') {
-        setActiveIndex((i) => Math.min(shots.length - 1, i + 1));
+        setActiveIndex((i) => (i + 1) % shots.length);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -292,25 +292,25 @@ export default function StepOneScript({
     }
     const dx = e.clientX - st.x;
     const dy = e.clientY - st.y;
-    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.1) {
-      if (dx < 0 && safeIndex < shots.length - 1) {
-        setActiveIndex(safeIndex + 1);
-      } else if (dx > 0 && safeIndex > 0) {
-        setActiveIndex(safeIndex - 1);
+    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.1 && shots.length > 1) {
+      if (dx < 0) {
+        setActiveIndex((safeIndex + 1) % shots.length);
+      } else if (dx > 0) {
+        setActiveIndex((safeIndex - 1 + shots.length) % shots.length);
       }
     }
     setDragOffset(0);
   };
 
   const handleSlideWheel = (e) => {
-    if (Math.abs(e.deltaX) < 30 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    if (shots.length <= 1 || Math.abs(e.deltaX) < 30 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
     const now = Date.now();
     if (now - wheelLockRef.current < 360) return;
     wheelLockRef.current = now;
-    if (e.deltaX > 0 && safeIndex < shots.length - 1) {
-      setActiveIndex(safeIndex + 1);
-    } else if (e.deltaX < 0 && safeIndex > 0) {
-      setActiveIndex(safeIndex - 1);
+    if (e.deltaX > 0) {
+      setActiveIndex((safeIndex + 1) % shots.length);
+    } else if (e.deltaX < 0) {
+      setActiveIndex((safeIndex - 1 + shots.length) % shots.length);
     }
   };
 
@@ -738,12 +738,13 @@ export default function StepOneScript({
               <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-3 flex-wrap shrink-0">
                 <button
                   type="button"
-                  onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
-                  disabled={safeIndex === 0}
+                  onClick={() => setActiveIndex((safeIndex - 1 + shots.length) % shots.length)}
+                  disabled={shots.length <= 1}
+                  title={safeIndex === 0 ? '循环到最后一镜' : '上一镜'}
                   className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2.5 py-1.5 text-xs font-medium text-slate-200 cursor-pointer transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>上一镜</span>
+                  <span>{safeIndex === 0 && shots.length > 1 ? '末镜' : '上一镜'}</span>
                 </button>
 
                 <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
@@ -773,11 +774,12 @@ export default function StepOneScript({
 
                 <button
                   type="button"
-                  onClick={() => setActiveIndex((i) => Math.min(shots.length - 1, i + 1))}
-                  disabled={safeIndex >= shots.length - 1}
+                  onClick={() => setActiveIndex((safeIndex + 1) % shots.length)}
+                  disabled={shots.length <= 1}
+                  title={safeIndex === shots.length - 1 ? '回到第一镜' : '下一镜'}
                   className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2.5 py-1.5 text-xs font-medium text-slate-200 cursor-pointer transition-colors"
                 >
-                  <span>下一镜</span>
+                  <span>{safeIndex === shots.length - 1 && shots.length > 1 ? '回首镜' : '下一镜'}</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
