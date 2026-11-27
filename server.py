@@ -789,13 +789,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "请先输入故事创意或主题"}, 400)
             return
         try:
-            shot_count = int(data.get("shot_count") or 6)
+            shot_count = max(2, min(30, int(data.get("shot_count") or 6)))
         except (TypeError, ValueError):
             shot_count = 6
+        try:
+            raw_dur = float(data.get("target_duration") or 0)
+        except (TypeError, ValueError):
+            raw_dur = 0.0
+        target_duration = max(10, min(300, int(round(raw_dur)))) if raw_dur > 0 else 0
         try:
             res = generate_storyboard(
                 idea=idea,
                 shot_count=shot_count,
+                target_duration=target_duration,
                 visual_style=data.get("visual_style") or "",
                 narration_style=data.get("narration_style") or "绘本故事",
             )
@@ -919,8 +925,8 @@ class Handler(BaseHTTPRequestHandler):
         if not prompts:
             self._json({"error": "prompts 为空，至少给一段提示词"}, 400)
             return
-        if len(prompts) > 20:
-            self._json({"error": "一次最多 20 张"}, 400)
+        if len(prompts) > 30:
+            self._json({"error": "一次最多 30 张"}, 400)
             return
         seed = data.get("seed")
         if not isinstance(seed, int) or isinstance(seed, bool):

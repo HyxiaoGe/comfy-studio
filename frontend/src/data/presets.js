@@ -44,11 +44,23 @@ export const IDEA_SUGGESTIONS = [
   '为什么天空是蓝色的，日落时却变成温柔的橘红色（儿童科普）',
 ];
 
+export const MIN_SHOT_COUNT = 2;
+export const MAX_SHOT_COUNT = 30;
+export const MIN_TARGET_DURATION = 10;
+export const MAX_TARGET_DURATION = 300;
+
 export const SHOT_COUNT_OPTIONS = [
   { value: 4, label: '4 镜' },
-  { value: 5, label: '5 镜' },
   { value: 6, label: '6 镜' },
   { value: 8, label: '8 镜' },
+  { value: 12, label: '12 镜' },
+];
+
+export const TARGET_DURATION_OPTIONS = [
+  { value: 15, label: '15s' },
+  { value: 30, label: '30s' },
+  { value: 60, label: '1 分钟' },
+  { value: 300, label: '5 分钟' },
 ];
 
 export const ASPECT_RATIOS = [
@@ -71,6 +83,9 @@ export const DURATION_OPTIONS = [
   { value: 3, label: '3s' },
   { value: 4, label: '4s' },
   { value: 5, label: '5s' },
+  { value: 8, label: '8s' },
+  { value: 10, label: '10s' },
+  { value: 12, label: '12s' },
 ];
 
 export const NARRATION_STYLES = [

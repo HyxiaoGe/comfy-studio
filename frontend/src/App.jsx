@@ -4,6 +4,10 @@ import {
   ASPECT_RATIOS,
   CUSTOM_CHIPS_KEY,
   DEFAULT_NEGATIVE_PROMPT,
+  MAX_SHOT_COUNT,
+  MAX_TARGET_DURATION,
+  MIN_SHOT_COUNT,
+  MIN_TARGET_DURATION,
   MOTION_CYCLE,
   STYLE_CHIPS,
 } from './data/presets';
@@ -79,6 +83,8 @@ export default function App() {
   const [projectId, setProjectId] = useState(null);
   const [title, setTitle] = useState('未命名分镜项目');
   const [storyIdea, setStoryIdea] = useState('');
+  const [storyPlanMode, setStoryPlanMode] = useState('duration'); // duration | shots
+  const [aiTargetDuration, setAiTargetDuration] = useState(30);
   const [aiShotCount, setAiShotCount] = useState(6);
   const [generatingStoryboard, setGeneratingStoryboard] = useState(false);
   const [prefix, setPrefix] = useState('');
@@ -310,6 +316,14 @@ export default function App() {
       pushToast('请先输入故事创意或主题', 'error');
       return;
     }
+    const clampedDuration = Math.max(
+      MIN_TARGET_DURATION,
+      Math.min(MAX_TARGET_DURATION, Math.round(Number(aiTargetDuration) || 30))
+    );
+    const clampedShots = Math.max(
+      MIN_SHOT_COUNT,
+      Math.min(MAX_SHOT_COUNT, Math.round(Number(aiShotCount) || 6))
+    );
     setGeneratingStoryboard(true);
     try {
       const r = await fetch('/api/storyboard', {
@@ -317,7 +331,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           idea: cleanIdea,
-          shot_count: aiShotCount,
+          shot_count: clampedShots,
+          target_duration: storyPlanMode === 'duration' ? clampedDuration : 0,
           visual_style: stateRef.current.prefix || '',
           narration_style: narrationStyle,
         }),
@@ -365,7 +380,17 @@ export default function App() {
     } finally {
       setGeneratingStoryboard(false);
     }
-  }, [aiShotCount, buildShot, fetchLists, narrationStyle, pushToast, saveProjectNow, storyIdea]);
+  }, [
+    aiShotCount,
+    aiTargetDuration,
+    buildShot,
+    fetchLists,
+    narrationStyle,
+    pushToast,
+    saveProjectNow,
+    storyIdea,
+    storyPlanMode,
+  ]);
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -1033,12 +1058,14 @@ export default function App() {
   const ttsCount = shots.filter((s) => Boolean(s.ttsFilename)).length;
 
   const openProjectById = useCallback(
-    async (pid, preferredStep = null, { updateHistory = true } = {}) => {
+    async (pid, preferredStep = null, { updateHistory = true, skipComposeRestore = false } = {}) => {
       const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
       const data = await r.json();
       if (!r.ok || !data.project) return false;
       applyProjectRecord(data.project);
-      await restoreCompositionForProject(data.project.id);
+      if (!skipComposeRestore) {
+        await restoreCompositionForProject(data.project.id);
+      }
       const projShots = data.project.shots || [];
       const hasAnyContent = projShots.some((s) => (s.prompt || '').trim() || (s.narration || '').trim());
       const hasAnyReady = projShots.some((s) => Boolean(s.filename));
@@ -1130,10 +1157,7 @@ export default function App() {
 
   const handlePlayComposition = useCallback(
     async (c) => {
-      let opened = false;
-      if (c.project_id) {
-        opened = await openProjectById(c.project_id, 3, { updateHistory: true });
-      }
+      const ts = Date.now();
       setComposeState({
         visible: true,
         done: 1,
@@ -1141,14 +1165,26 @@ export default function App() {
         stage: `成片就绪 · ${c.width}×${c.height} · ${c.duration}s · 编码器 ${c.encoder || 'h264'}`,
         videoUrl: c.video_url,
         filename: c.filename,
-        cacheBust: Date.now(),
+        cacheBust: ts,
+        autoPlay: true,
       });
       setActiveView('studio');
       setActiveStep(3);
-      if (!opened && stateRef.current.projectId) {
+      setDrawerOpen(false);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      if (c.project_id) {
+        const opened = await openProjectById(c.project_id, 3, {
+          updateHistory: true,
+          skipComposeRestore: true,
+        });
+        if (!opened && stateRef.current.projectId) {
+          pushBrowserPath(buildStudioPath(stateRef.current.projectId, 3));
+        }
+      } else if (stateRef.current.projectId) {
         pushBrowserPath(buildStudioPath(stateRef.current.projectId, 3));
       }
-      setDrawerOpen(false);
     },
     [openProjectById]
   );
@@ -1240,6 +1276,10 @@ export default function App() {
         <HomePage
           storyIdea={storyIdea}
           onStoryIdeaChange={setStoryIdea}
+          storyPlanMode={storyPlanMode}
+          onStoryPlanModeChange={setStoryPlanMode}
+          aiTargetDuration={aiTargetDuration}
+          onAiTargetDurationChange={setAiTargetDuration}
           aiShotCount={aiShotCount}
           onAiShotCountChange={setAiShotCount}
           aspectValue={aspectValue}
@@ -1296,6 +1336,10 @@ export default function App() {
               }}
               storyIdea={storyIdea}
               onStoryIdeaChange={setStoryIdea}
+              storyPlanMode={storyPlanMode}
+              onStoryPlanModeChange={setStoryPlanMode}
+              aiTargetDuration={aiTargetDuration}
+              onAiTargetDurationChange={setAiTargetDuration}
               aiShotCount={aiShotCount}
               onAiShotCountChange={setAiShotCount}
               generatingStoryboard={generatingStoryboard}

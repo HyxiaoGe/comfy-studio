@@ -14,12 +14,11 @@ import {
   ASPECT_RATIOS,
   IDEA_SUGGESTIONS,
   NARRATION_STYLES,
-  SHOT_COUNT_OPTIONS,
   STYLE_CHIPS,
 } from '../data/presets';
 import AutoGrowTextarea from './ui/AutoGrowTextarea';
-import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
+import StoryScopeControl from './ui/StoryScopeControl';
 
 function formatTime(ts) {
   if (!ts) return '';
@@ -31,6 +30,10 @@ function formatTime(ts) {
 export default function HomePage({
   storyIdea,
   onStoryIdeaChange,
+  storyPlanMode,
+  onStoryPlanModeChange,
+  aiTargetDuration,
+  onAiTargetDurationChange,
   aiShotCount,
   onAiShotCountChange,
   aspectValue,
@@ -121,19 +124,14 @@ export default function HomePage({
 
           {/* Right: Parameters & Start CTA */}
           <div className="rounded-2xl border border-slate-800/90 bg-[#0b101b]/90 p-4 space-y-3.5">
-            <div>
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-300">目标镜头数</span>
-                <span className="text-[11px] text-slate-500">可随时增删</span>
-              </div>
-              <SegmentedControl
-                fullWidth
-                size="sm"
-                value={aiShotCount}
-                onChange={onAiShotCountChange}
-                options={SHOT_COUNT_OPTIONS}
-              />
-            </div>
+            <StoryScopeControl
+              planMode={storyPlanMode}
+              onPlanModeChange={onStoryPlanModeChange}
+              targetDuration={aiTargetDuration}
+              onTargetDurationChange={onAiTargetDurationChange}
+              shotCount={aiShotCount}
+              onShotCountChange={onAiShotCountChange}
+            />
 
             <div className="grid grid-cols-2 gap-2.5">
               <div>

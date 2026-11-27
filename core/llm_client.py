@@ -160,14 +160,55 @@ def generate_narrations(title, prefix, shots, style="绘本故事", timeout=60):
 
 VALID_MOTIONS = {"zoom_in", "zoom_out", "pan_left", "pan_right", "static"}
 DEFAULT_MOTION_CYCLE = ["zoom_in", "pan_right", "zoom_out", "pan_left"]
+MIN_STORYBOARD_SHOTS = 2
+MAX_STORYBOARD_SHOTS = 30
+MIN_STORYBOARD_DURATION = 10
+MAX_STORYBOARD_DURATION = 300
+
+
+def plan_storyboard_scope(shot_count=6, target_duration=0):
+    """根据目标总时长或目标镜头数，规划最终镜头数与建议单镜秒数（严格限制在安全范围内）。"""
+    try:
+        raw_dur = float(target_duration or 0)
+    except (TypeError, ValueError):
+        raw_dur = 0.0
+
+    if raw_dur > 0:
+        target_dur = max(
+            MIN_STORYBOARD_DURATION,
+            min(MAX_STORYBOARD_DURATION, int(round(raw_dur))),
+        )
+        if target_dur <= 24:
+            avg = 4
+        elif target_dur <= 48:
+            avg = 5
+        elif target_dur <= 96:
+            avg = 6
+        elif target_dur <= 180:
+            avg = 8
+        elif target_dur <= 240:
+            avg = 10
+        else:
+            avg = 12
+        count = max(MIN_STORYBOARD_SHOTS, min(MAX_STORYBOARD_SHOTS, int(round(target_dur / avg))))
+        per_shot = max(3, min(12, int(round(target_dur / count))))
+        return count, target_dur, per_shot
+
+    try:
+        raw_cnt = int(shot_count or 6)
+    except (TypeError, ValueError):
+        raw_cnt = 6
+    count = max(MIN_STORYBOARD_SHOTS, min(MAX_STORYBOARD_SHOTS, raw_cnt))
+    return count, 0, 4
 
 
 def generate_storyboard(
     idea,
     shot_count=6,
+    target_duration=0,
     visual_style="",
     narration_style="绘本故事",
-    timeout=90,
+    timeout=120,
 ):
     """
     根据用户一句话故事创意，调用大模型一次性生成完整分镜剧本：
@@ -182,8 +223,14 @@ def generate_storyboard(
     if not clean_idea:
         raise ValueError("请输入故事创意或主题描述")
 
-    count = max(2, min(12, int(shot_count or 6)))
+    count, target_dur, per_shot = plan_storyboard_scope(shot_count, target_duration)
     style_hint = (visual_style or "").strip()
+
+    narration_len_hint = (
+        f"每镜约 {max(12, min(42, per_shot * 3))} 个汉字左右，贴合约 {per_shot} 秒阅读节奏"
+        if target_dur > 0
+        else "10~26个汉字，贴合3~5秒阅读节奏"
+    )
 
     system_msg = (
         "你是一位兼具 SDXL AI 绘画导演与中文短视频编剧能力的分镜总监。\n"
@@ -196,23 +243,28 @@ def generate_storyboard(
         '  "shots": [\n'
         "    {\n"
         '      "prompt": "英文单镜画面描述（包含景别如 wide shot/close-up/low angle、动作、构图、光线与环境细节，不要重复 prefix 里的完整画风描述）",\n'
-        '      "narration": "对应的中文口语化旁白解说词（10~24个汉字，贴合3~5秒阅读节奏，不要出现第几镜或括号舞台提示）",\n'
+        f'      "narration": "对应的中文口语化旁白解说词（{narration_len_hint}，不要出现第几镜或括号舞台提示）",\n'
         '      "motion": "zoom_in | zoom_out | pan_left | pan_right | static",\n'
-        '      "duration": 4\n'
+        f'      "duration": {per_shot}\n'
         "    }\n"
         "  ]\n"
         "}\n"
         "要求：\n"
         f"1. shots 数组长度必须严格等于 {count}；\n"
-        "2. 镜头景别与运镜要交替有节奏（开场全景定调 → 中景/特写推进 → 动作转折 → 温暖或升华收尾）；\n"
+        "2. 镜头景别与运镜要交替有节奏（开场全景定调 → 中景/特写推进 → 动作转折 → 温暖或升华收尾），避免单调重复；\n"
         "3. prefix 与每镜 prompt 必须使用英文（SDXL 对英文描述理解最稳定），title 与 narration 必须使用自然流畅的简体中文；\n"
-        "4. duration 只能取 3、4 或 5；motion 只能从 zoom_in、zoom_out、pan_left、pan_right、static 中选择；\n"
+        "4. duration 为 3 到 12 之间的整数秒数；motion 只能从 zoom_in、zoom_out、pan_left、pan_right、static 中选择；\n"
         "5. 只输出严格合法的 JSON 对象，不要输出任何额外说明文字。"
     )
 
+    scope_line = (
+        f"目标成片总时长：约 {target_dur} 秒（请编排 {count} 个分镜，使每镜约 {per_shot} 秒、所有镜头总时长接近 {target_dur} 秒）\n"
+        if target_dur > 0
+        else f"期望分镜数量：{count} 镜\n"
+    )
     user_msg = (
         f"创意主题：{clean_idea}\n"
-        f"期望分镜数量：{count} 镜\n"
+        f"{scope_line}"
         f"旁白风格：{narration_style or '绘本故事'}\n"
         f"画风参考（如有）：{style_hint or '请根据主题自动匹配最合适的插画、水彩、电影或扁平矢量画风'}\n"
     )
@@ -267,11 +319,10 @@ def generate_storyboard(
         if motion not in VALID_MOTIONS:
             motion = DEFAULT_MOTION_CYCLE[idx % len(DEFAULT_MOTION_CYCLE)]
         try:
-            dur = int(round(float(item.get("duration") or 4)))
+            dur = int(round(float(item.get("duration") or per_shot)))
         except (TypeError, ValueError):
-            dur = 4
-        if dur not in (3, 4, 5):
-            dur = 4
+            dur = per_shot
+        dur = max(3, min(12, dur))
         shots.append({
             "prompt": str(item.get("prompt") or "").strip(),
             "narration": str(item.get("narration") or "").strip(),

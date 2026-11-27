@@ -219,10 +219,10 @@ export default function StepThreeCompose({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800/80">
+                <div className="flex items-center justify-between gap-2 flex-wrap pt-1.5 border-t border-slate-800/80">
                   <SelectDropdown
                     size="sm"
-                    className="flex-1 min-w-0"
+                    className="flex-1 min-w-[115px]"
                     value={shot.motion}
                     onChange={(val) => onChangeMotion(shot.uid, val)}
                     options={MOTION_OPTIONS}
@@ -390,7 +390,7 @@ export default function StepThreeCompose({
                   <input
                     type="number"
                     min={8}
-                    max={120}
+                    max={180}
                     value={bgmDuration}
                     onChange={(e) => onBgmDurationChange(Number(e.target.value) || 24)}
                     className="w-12 rounded-md border border-slate-700/80 bg-[#090d14] px-1.5 py-1 text-[11px] tabular-nums text-slate-100 focus:outline-none focus:border-cyan-500"

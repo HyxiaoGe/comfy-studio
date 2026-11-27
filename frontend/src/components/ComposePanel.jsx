@@ -1,6 +1,24 @@
+import { useEffect, useRef } from 'react';
 import { Download, Film, X } from 'lucide-react';
 
 export default function ComposePanel({ state, title, onClose }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (!state?.visible || !state?.videoUrl || !state?.autoPlay) return;
+    const el = videoRef.current;
+    if (!el) return;
+    el.muted = false;
+    const p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        // 浏览器若因安全策略拦截有声自动播放，降级为静音自动播放
+        el.muted = true;
+        el.play().catch(() => {});
+      });
+    }
+  }, [state?.visible, state?.videoUrl, state?.autoPlay, state?.cacheBust]);
+
   if (!state?.visible) return null;
 
   const pct = state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : 0;
@@ -53,8 +71,10 @@ export default function ComposePanel({ state, title, onClose }) {
       ) : (
         <div className="rounded-xl bg-black border border-slate-800 overflow-hidden flex justify-center">
           <video
+            ref={videoRef}
             key={state.videoUrl + '_' + (state.cacheBust || '')}
             src={`${state.videoUrl}?t=${state.cacheBust || 1}`}
+            autoPlay={Boolean(state.autoPlay)}
             controls
             playsInline
             className="w-full max-h-[420px]"

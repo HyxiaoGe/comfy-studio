@@ -19,7 +19,6 @@ import {
   ASPECT_RATIOS,
   IDEA_SUGGESTIONS,
   NARRATION_STYLES,
-  SHOT_COUNT_OPTIONS,
   STYLE_CHIPS,
 } from '../data/presets';
 import AutoGrowTextarea from './ui/AutoGrowTextarea';
@@ -27,6 +26,7 @@ import Collapsible from './ui/Collapsible';
 import PromptTagsField, { CAMERA_FRAMING_RE, splitPromptTags } from './ui/PromptTagsField';
 import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
+import StoryScopeControl from './ui/StoryScopeControl';
 import ToggleSwitch from './ui/ToggleSwitch';
 
 function ScriptShotCard({
@@ -132,6 +132,10 @@ export default function StepOneScript({
   onTitleChange,
   storyIdea,
   onStoryIdeaChange,
+  storyPlanMode,
+  onStoryPlanModeChange,
+  aiTargetDuration,
+  onAiTargetDurationChange,
   aiShotCount,
   onAiShotCountChange,
   generatingStoryboard,
@@ -233,12 +237,14 @@ export default function StepOneScript({
             ))}
           </div>
 
-          <SegmentedControl
-            fullWidth
-            size="sm"
-            value={aiShotCount}
-            onChange={onAiShotCountChange}
-            options={SHOT_COUNT_OPTIONS}
+          <StoryScopeControl
+            planMode={storyPlanMode}
+            onPlanModeChange={onStoryPlanModeChange}
+            targetDuration={aiTargetDuration}
+            onTargetDurationChange={onAiTargetDurationChange}
+            shotCount={aiShotCount}
+            onShotCountChange={onAiShotCountChange}
+            compact
           />
 
           <button
