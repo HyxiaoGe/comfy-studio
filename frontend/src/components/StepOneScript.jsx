@@ -7,6 +7,8 @@ import {
   BookmarkPlus,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Dices,
   FileText,
@@ -49,9 +51,9 @@ function ScriptShotCard({
   return (
     <article
       id={`script-shot-${index}`}
-      className="rounded-2xl border border-slate-800/90 hover:border-slate-700/80 bg-[#111827]/90 p-4 space-y-3 transition-colors"
+      className="h-full flex flex-col rounded-2xl border border-slate-800/90 hover:border-slate-700/80 bg-[#0d1320]/90 p-4 gap-3 transition-colors"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
           <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-mono font-bold text-blue-300">
             #{String(index + 1).padStart(2, '0')}
@@ -103,7 +105,7 @@ function ScriptShotCard({
       </div>
 
       {/* Equal-height alignment between Chinese Narration and English Prompt */}
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] gap-3.5 items-stretch">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] gap-3.5 items-stretch">
         <div className="flex flex-col gap-1.5 h-full">
           <div className="flex items-center justify-between shrink-0">
             <label className="text-[11px] font-medium text-indigo-300">
@@ -184,14 +186,19 @@ export default function StepOneScript({
 }) {
   const [chipName, setChipName] = useState('');
   const [viewMode, setViewMode] = useState(() => (shots.length >= 8 ? 'outline' : 'detail'));
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dragOffset, setDragOffset] = useState(0);
   const [outlineText, setOutlineText] = useState(() =>
     shots.map((s) => (s.narration || '').replace(/\n+/g, ' ').trim()).join('\n')
   );
   const [copiedOutline, setCopiedOutline] = useState(false);
   const manualViewRef = useRef(false);
   const outlineEditingRef = useRef(false);
+  const pointerStartRef = useRef(null);
+  const wheelLockRef = useRef(0);
 
   const shotsOutlineKey = shots.map((s) => `${s.uid}:${s.narration || ''}`).join('\u0001');
+  const safeIndex = shots.length > 0 ? Math.max(0, Math.min(shots.length - 1, activeIndex)) : 0;
 
   useEffect(() => {
     if (!manualViewRef.current) {
@@ -200,20 +207,31 @@ export default function StepOneScript({
   }, [shots.length]);
 
   useEffect(() => {
+    if (activeIndex >= shots.length && shots.length > 0) {
+      setActiveIndex(shots.length - 1);
+    }
+  }, [activeIndex, shots.length]);
+
+  useEffect(() => {
     if (!outlineEditingRef.current) {
       setOutlineText(shots.map((s) => (s.narration || '').replace(/\n+/g, ' ').trim()).join('\n'));
     }
   }, [shotsOutlineKey, viewMode]);
 
-  const jumpChunks = [];
-  if (viewMode === 'detail' && shots.length > 8) {
-    for (let i = 0; i < shots.length; i += 5) {
-      jumpChunks.push({
-        startIdx: i,
-        label: `#${i + 1}-${Math.min(shots.length, i + 5)}`,
-      });
-    }
-  }
+  useEffect(() => {
+    if (viewMode !== 'detail' || shots.length <= 1) return;
+    const onKeyDown = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'textarea' || tag === 'input') return;
+      if (e.key === 'ArrowLeft') {
+        setActiveIndex((i) => Math.max(0, i - 1));
+      } else if (e.key === 'ArrowRight') {
+        setActiveIndex((i) => Math.min(shots.length - 1, i + 1));
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [viewMode, shots.length]);
 
   const outlineLines = outlineText.split('\n');
   const totalChars = outlineText.replace(/\s+/g, '').length;
@@ -245,22 +263,64 @@ export default function StepOneScript({
     setChipName('');
   };
 
+  const handleSlidePointerDown = (e) => {
+    if (e.target?.closest?.('textarea, input, button, [role="button"], a')) return;
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSlidePointerMove = (e) => {
+    const st = pointerStartRef.current;
+    if (!st) return;
+    const dx = e.clientX - st.x;
+    const dy = e.clientY - st.y;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
+      setDragOffset(Math.max(-64, Math.min(64, dx * 0.6)));
+    }
+  };
+
+  const handleSlidePointerEnd = (e) => {
+    const st = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (!st) {
+      setDragOffset(0);
+      return;
+    }
+    const dx = e.clientX - st.x;
+    const dy = e.clientY - st.y;
+    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.1) {
+      if (dx < 0 && safeIndex < shots.length - 1) {
+        setActiveIndex(safeIndex + 1);
+      } else if (dx > 0 && safeIndex > 0) {
+        setActiveIndex(safeIndex - 1);
+      }
+    }
+    setDragOffset(0);
+  };
+
+  const handleSlideWheel = (e) => {
+    if (Math.abs(e.deltaX) < 30 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    const now = Date.now();
+    if (now - wheelLockRef.current < 360) return;
+    wheelLockRef.current = now;
+    if (e.deltaX > 0 && safeIndex < shots.length - 1) {
+      setActiveIndex(safeIndex + 1);
+    } else if (e.deltaX < 0 && safeIndex > 0) {
+      setActiveIndex(safeIndex - 1);
+    }
+  };
+
   const isOutline = viewMode === 'outline';
+  const activeShot = shots[safeIndex];
 
   return (
-    <main
-      className={`max-w-[1440px] mx-auto px-4 lg:px-6 py-5 grid grid-cols-1 lg:grid-cols-[410px_minmax(0,1fr)] gap-5 ${
-        isOutline ? 'items-stretch' : 'items-start'
-      }`}
-    >
+    <main className="max-w-[1440px] mx-auto px-4 lg:px-6 py-5 grid grid-cols-1 lg:grid-cols-[410px_minmax(0,1fr)] gap-5 items-stretch">
       {/* Left: AI Script Generator + Visual DNA */}
-      <aside
-        className={`rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 ${
-          isOutline
-            ? 'h-full'
-            : 'lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-84px)] lg:overflow-y-auto'
-        }`}
-      >
+      <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 h-full">
         {/* Project Title */}
         <div>
           <label htmlFor="step1-title" className="block text-xs font-semibold text-slate-300 mb-1.5">
@@ -487,13 +547,9 @@ export default function StepOneScript({
         </Collapsible>
       </aside>
 
-      {/* Right: Sticky Toolbar + Full Narration Textbox OR Detail Cards */}
-      <section className={`min-w-0 flex flex-col gap-3 ${isOutline ? 'h-full' : ''}`}>
-        <div
-          className={`${
-            isOutline ? '' : 'sticky top-[64px] z-20'
-          } rounded-2xl border border-slate-800/90 bg-[#111827]/95 backdrop-blur-xl px-4 py-3 space-y-2.5 shadow-xl shadow-black/40 shrink-0`}
-        >
+      {/* Right: Top Toolbar + Full Narration Textbox OR Paginated Swipeable Carousel */}
+      <section className="min-w-0 flex flex-col gap-3 h-full">
+        <div className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 backdrop-blur-xl px-4 py-3 space-y-2.5 shadow-xl shadow-black/40 shrink-0">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <div>
@@ -503,7 +559,7 @@ export default function StepOneScript({
                 <p className="text-[11px] text-slate-400 mt-0.5">
                   {isOutline
                     ? '旁白全文视图 · 在一个文本框里完整通读与微调故事旁白'
-                    : '确认各镜中文旁白与英文画面描述后进入 Step 2'}
+                    : `逐镜详情分页 · 第 ${safeIndex + 1} / ${shots.length} 镜，支持左右滑动切换`}
                 </p>
               </div>
               <SegmentedControl
@@ -544,7 +600,10 @@ export default function StepOneScript({
               </button>
               <button
                 type="button"
-                onClick={onAddShot}
+                onClick={() => {
+                  onAddShot();
+                  setActiveIndex(shots.length);
+                }}
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5 text-blue-400" />
@@ -561,26 +620,6 @@ export default function StepOneScript({
               </button>
             </div>
           </div>
-
-          {jumpChunks.length > 0 ? (
-            <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-slate-800/80">
-              <span className="text-[10px] text-slate-500 mr-1">快速定位:</span>
-              {jumpChunks.map((chunk) => (
-                <button
-                  key={chunk.label}
-                  type="button"
-                  onClick={() => {
-                    document
-                      .getElementById(`script-shot-${chunk.startIdx}`)
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  }}
-                  className="rounded-md border border-slate-800 bg-[#0c121e] hover:border-blue-500/45 hover:text-blue-200 px-2 py-0.5 text-[10px] font-mono text-slate-400 cursor-pointer transition-colors"
-                >
-                  {chunk.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </div>
 
         {isOutline ? (
@@ -643,21 +682,106 @@ export default function StepOneScript({
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {shots.map((shot, idx) => (
-              <ScriptShotCard
-                key={shot.uid}
-                shot={shot}
-                index={idx}
-                total={shots.length}
-                onChangeNarration={(val) => onChangeShotNarration(shot.uid, val)}
-                onChangePrompt={(val) => onChangeShotPrompt(shot.uid, val)}
-                onMoveUp={() => onMoveShotUp(idx)}
-                onMoveDown={() => onMoveShotDown(idx)}
-                onDuplicate={() => onDuplicateShot(idx)}
-                onDelete={() => onDeleteShot(shot.uid)}
-              />
-            ))}
+          <div className="flex-1 flex flex-col rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 justify-between gap-3 shadow-xl shadow-black/30">
+            {/* Swipeable Card Viewport */}
+            <div
+              onPointerDown={handleSlidePointerDown}
+              onPointerMove={handleSlidePointerMove}
+              onPointerUp={handleSlidePointerEnd}
+              onPointerCancel={handleSlidePointerEnd}
+              onWheel={handleSlideWheel}
+              className="flex-1 flex flex-col overflow-hidden touch-pan-y select-none cursor-grab active:cursor-grabbing"
+            >
+              {activeShot ? (
+                <div
+                  className="flex-1 flex flex-col transition-transform duration-150 ease-out select-text"
+                  style={{ transform: `translateX(${dragOffset}px)` }}
+                >
+                  <ScriptShotCard
+                    key={activeShot.uid}
+                    shot={activeShot}
+                    index={safeIndex}
+                    total={shots.length}
+                    onChangeNarration={(val) => onChangeShotNarration(activeShot.uid, val)}
+                    onChangePrompt={(val) => onChangeShotPrompt(activeShot.uid, val)}
+                    onMoveUp={() => {
+                      if (safeIndex > 0) {
+                        onMoveShotUp(safeIndex);
+                        setActiveIndex(safeIndex - 1);
+                      }
+                    }}
+                    onMoveDown={() => {
+                      if (safeIndex < shots.length - 1) {
+                        onMoveShotDown(safeIndex);
+                        setActiveIndex(safeIndex + 1);
+                      }
+                    }}
+                    onDuplicate={() => {
+                      onDuplicateShot(safeIndex);
+                      setActiveIndex(safeIndex + 1);
+                    }}
+                    onDelete={() => {
+                      onDeleteShot(activeShot.uid);
+                      setActiveIndex((i) => Math.max(0, Math.min(i, shots.length - 2)));
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
+                  暂无分镜，请点击上方「新增镜」
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Carousel Pagination Dots & Arrows */}
+            {shots.length > 0 ? (
+              <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-3 flex-wrap shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
+                  disabled={safeIndex === 0}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2.5 py-1.5 text-xs font-medium text-slate-200 cursor-pointer transition-colors"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>上一镜</span>
+                </button>
+
+                <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
+                  <div className="flex items-center justify-center gap-1.5 flex-wrap max-w-full">
+                    {shots.map((s, idx) => {
+                      const active = idx === safeIndex;
+                      return (
+                        <button
+                          key={s.uid}
+                          type="button"
+                          onClick={() => setActiveIndex(idx)}
+                          title={`第 ${idx + 1} 镜${s.narration ? `：${s.narration.slice(0, 18)}` : ''}`}
+                          aria-label={`切换到第 ${idx + 1} 镜`}
+                          className={`rounded-full transition-all cursor-pointer ${
+                            active
+                              ? 'w-7 h-2.5 bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.7)]'
+                              : 'w-2.5 h-2.5 bg-slate-700 hover:bg-slate-500'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <span className="text-[10px] text-slate-500 tabular-nums">
+                    第 {safeIndex + 1} / {shots.length} 镜 · 支持鼠标拖拽 / 触屏 / 触摸板左右滑动切换
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveIndex((i) => Math.min(shots.length - 1, i + 1))}
+                  disabled={safeIndex >= shots.length - 1}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-35 disabled:cursor-not-allowed px-2.5 py-1.5 text-xs font-medium text-slate-200 cursor-pointer transition-colors"
+                >
+                  <span>下一镜</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </section>
