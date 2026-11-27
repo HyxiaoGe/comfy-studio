@@ -47,6 +47,7 @@ from core.image_runner import (  # noqa: E402
 )
 from core.llm_client import (  # noqa: E402
     generate_narrations,
+    generate_storyboard,
     get_llm_config,
     is_llm_configured,
     load_dotenv,
@@ -608,6 +609,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_save_project()
         elif path == "/api/narration":
             self._handle_narration()
+        elif path == "/api/storyboard":
+            self._handle_storyboard()
         elif path == "/api/tts":
             self._handle_tts()
         elif path == "/api/upload-audio":
@@ -674,6 +677,31 @@ class Handler(BaseHTTPRequestHandler):
                 prefix=data.get("prefix") or "",
                 shots=shots,
                 style=data.get("style") or "绘本故事",
+            )
+            self._json(res)
+        except Exception as e:  # noqa: BLE001
+            code = 400 if "未配置" in str(e) else 502
+            self._json({"error": str(e)}, code)
+
+    def _handle_storyboard(self):
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        idea = (data.get("idea") or "").strip()
+        if not idea:
+            self._json({"error": "请先输入故事创意或主题"}, 400)
+            return
+        try:
+            shot_count = int(data.get("shot_count") or 6)
+        except (TypeError, ValueError):
+            shot_count = 6
+        try:
+            res = generate_storyboard(
+                idea=idea,
+                shot_count=shot_count,
+                visual_style=data.get("visual_style") or "",
+                narration_style=data.get("narration_style") or "绘本故事",
             )
             self._json(res)
         except Exception as e:  # noqa: BLE001

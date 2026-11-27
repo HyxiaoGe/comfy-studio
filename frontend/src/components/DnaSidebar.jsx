@@ -8,7 +8,6 @@ import {
   Loader2,
   Music,
   Palette,
-  RotateCcw,
   Sparkles,
   Upload,
   Volume2,
@@ -18,8 +17,9 @@ import {
 import {
   ASPECT_RATIOS,
   DEFAULT_TTS_VOICES,
+  IDEA_SUGGESTIONS,
   NARRATION_STYLES,
-  STORY_PRESETS,
+  SHOT_COUNT_OPTIONS,
   STYLE_CHIPS,
   TRANSITION_OPTIONS,
 } from '../data/presets';
@@ -29,9 +29,12 @@ import ToggleSwitch from './ui/ToggleSwitch';
 import Collapsible from './ui/Collapsible';
 
 export default function DnaSidebar({
-  selectedPresetId,
-  onSelectPreset,
-  onResetPreset,
+  storyIdea,
+  onStoryIdeaChange,
+  aiShotCount,
+  onAiShotCountChange,
+  generatingStoryboard,
+  onGenerateStoryboard,
   prefix,
   onPrefixChange,
   customChips,
@@ -83,12 +86,6 @@ export default function DnaSidebar({
   const [chipName, setChipName] = useState('');
   const audioInputRef = useRef(null);
 
-  const presetOptions = STORY_PRESETS.map((p) => ({
-    value: p.id,
-    label: p.name,
-    badge: p.badge,
-  }));
-
   const bgmOptions = [
     { value: '', label: '无背景音乐', badge: '静音' },
     ...audioFiles.map((f) => ({
@@ -125,30 +122,80 @@ export default function DnaSidebar({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {activeTab === 'visual' ? (
           <>
-            {/* Story Preset */}
-            <div>
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-300">故事分镜模板</span>
-                <span className="text-[11px] text-slate-500">切换新建草稿</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <SelectDropdown
-                  className="flex-1 min-w-0"
-                  value={selectedPresetId}
-                  onChange={onSelectPreset}
-                  options={presetOptions}
-                  placeholder="选择预设故事模板"
-                />
-                <button
-                  type="button"
-                  onClick={onResetPreset}
-                  title="重置为当前模板初始内容"
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-600 px-2.5 py-2 text-xs font-medium text-slate-300 transition-colors shrink-0 cursor-pointer"
+            {/* AI Storyboard Generator */}
+            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-200">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  AI 创意生成全部分镜
+                </span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    llmConfigured
+                      ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+                      : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+                  }`}
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>重填</span>
-                </button>
+                  {llmConfigured ? 'DeepSeek 就绪' : '未配 Key'}
+                </span>
               </div>
+
+              <textarea
+                id="story-idea-input"
+                rows={3}
+                value={storyIdea}
+                onChange={(e) => onStoryIdeaChange(e.target.value)}
+                placeholder="输入故事主题或科普问题，例如：一只怕黑的小橘猫跟着萤火虫学会了勇敢..."
+                className="w-full rounded-lg border border-slate-700/80 bg-[#0c121e] px-2.5 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-y"
+              />
+
+              {/* Inspiration quick picks */}
+              <div className="flex flex-wrap gap-1.5">
+                {IDEA_SUGGESTIONS.map((idea, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => onStoryIdeaChange(idea)}
+                    title={idea}
+                    className="max-w-full truncate rounded-full border border-slate-700/80 bg-slate-900/80 hover:border-indigo-400/60 hover:text-indigo-200 px-2 py-0.5 text-[11px] text-slate-400 transition-colors cursor-pointer"
+                  >
+                    {idea}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] text-slate-400">目标镜头数</span>
+                  <span className="text-[10px] text-slate-500">自动生成标题、画风、Prompt 与旁白</span>
+                </div>
+                <SegmentedControl
+                  fullWidth
+                  size="sm"
+                  value={aiShotCount}
+                  onChange={onAiShotCountChange}
+                  options={SHOT_COUNT_OPTIONS}
+                />
+              </div>
+
+              <button
+                type="button"
+                disabled={generatingStoryboard || !llmConfigured || !storyIdea.trim()}
+                onClick={onGenerateStoryboard}
+                className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 disabled:opacity-45 disabled:cursor-not-allowed px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-500/20 transition-all cursor-pointer"
+              >
+                {generatingStoryboard ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    正在编排分镜剧本...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    AI 一键生成全部分镜
+                  </>
+                )}
+              </button>
             </div>
 
             {/* Common Style & Character Prefix */}

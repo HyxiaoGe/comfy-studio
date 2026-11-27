@@ -4,8 +4,9 @@ import {
   ACTIVE_BATCH_KEY,
   ASPECT_RATIOS,
   CUSTOM_CHIPS_KEY,
+  DEFAULT_NEGATIVE_PROMPT,
   MOTION_CYCLE,
-  STORY_PRESETS,
+  STYLE_CHIPS,
 } from './data/presets';
 import { useToast } from './components/ui/ToastProvider';
 import SegmentedControl from './components/ui/SegmentedControl';
@@ -37,10 +38,12 @@ export default function App() {
 
   const [mode, setMode] = useState('storyboard');
   const [projectId, setProjectId] = useState(null);
-  const [title, setTitle] = useState('清晨厨房的猫');
-  const [selectedPresetId, setSelectedPresetId] = useState(STORY_PRESETS[0].id);
-  const [prefix, setPrefix] = useState(STORY_PRESETS[0].prefix);
-  const [negativePrompt, setNegativePrompt] = useState(STORY_PRESETS[0].negative);
+  const [title, setTitle] = useState('未命名分镜项目');
+  const [storyIdea, setStoryIdea] = useState('');
+  const [aiShotCount, setAiShotCount] = useState(6);
+  const [generatingStoryboard, setGeneratingStoryboard] = useState(false);
+  const [prefix, setPrefix] = useState(STYLE_CHIPS[0].prefix);
+  const [negativePrompt, setNegativePrompt] = useState(DEFAULT_NEGATIVE_PROMPT);
   const [seed, setSeed] = useState(42);
   const [autoRandomize, setAutoRandomize] = useState(false);
   const [aspectValue, setAspectValue] = useState('1344x768');
@@ -254,37 +257,64 @@ export default function App() {
     setSaveState('saved');
   }, []);
 
-  const applyPreset = useCallback(
-    async (presetId, { asNew = true } = {}) => {
-      const preset = STORY_PRESETS.find((p) => p.id === presetId);
-      if (!preset) return;
-      setSelectedPresetId(preset.id);
-      const nextShots = preset.prompts.map((p, idx) => buildShot(p, idx));
+  const handleGenerateStoryboard = useCallback(async () => {
+    const cleanIdea = storyIdea.trim();
+    if (!cleanIdea) {
+      pushToast('请先输入故事创意或主题', 'error');
+      return;
+    }
+    setGeneratingStoryboard(true);
+    try {
+      const r = await fetch('/api/storyboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idea: cleanIdea,
+          shot_count: aiShotCount,
+          visual_style: stateRef.current.prefix || '',
+          narration_style: narrationStyle,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const sb = data.storyboard || {};
+      const nextShots = (sb.shots || []).map((s, idx) => ({
+        ...buildShot(s.prompt || '', idx, s.narration || ''),
+        motion: s.motion || MOTION_CYCLE[idx % MOTION_CYCLE.length],
+        duration: Number(s.duration) || 4,
+      }));
+      if (!nextShots.length) {
+        throw new Error('AI 未返回有效分镜，请调整创意后再试');
+      }
       const nextState = {
-        projectId: asNew ? '' : stateRef.current.projectId,
-        title: preset.name,
-        mode: stateRef.current.mode || 'storyboard',
-        prefix: preset.prefix,
-        negativePrompt: preset.negative,
-        seed: preset.seed,
+        projectId: '',
+        title: sb.title || cleanIdea.slice(0, 18),
+        mode: 'storyboard',
+        prefix: sb.prefix || stateRef.current.prefix || STYLE_CHIPS[0].prefix,
+        negativePrompt: sb.negative_prompt || stateRef.current.negativePrompt || DEFAULT_NEGATIVE_PROMPT,
+        seed: stateRef.current.seed || 42,
         aspectValue: stateRef.current.aspectValue || '1344x768',
         shots: nextShots,
       };
-      if (asNew) {
-        setProjectId(null);
-        setComposeState((prev) => ({ ...prev, visible: false, videoUrl: '' }));
-      }
+      setMode('storyboard');
+      setProjectId(null);
+      setComposeState((prev) => ({ ...prev, visible: false, videoUrl: '' }));
       setTitle(nextState.title);
       setPrefix(nextState.prefix);
       setNegativePrompt(nextState.negativePrompt);
-      setSeed(nextState.seed);
       setShots(nextShots);
       await saveProjectNow(nextState);
       fetchLists();
-      pushToast(asNew ? `已新建模板项目：${preset.name}` : `已重置模板：${preset.name}`, 'info');
-    },
-    [buildShot, fetchLists, pushToast, saveProjectNow]
-  );
+      pushToast(
+        `已用 ${data.model || 'DeepSeek'} 生成「${nextState.title}」(${nextShots.length} 镜)`,
+        'success'
+      );
+    } catch (e) {
+      pushToast(e.message, 'error');
+    } finally {
+      setGeneratingStoryboard(false);
+    }
+  }, [aiShotCount, buildShot, fetchLists, narrationStyle, pushToast, saveProjectNow, storyIdea]);
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -416,16 +446,15 @@ export default function App() {
       }
 
       if (!cancelled && !restoredProj) {
-        const p0 = STORY_PRESETS[0];
-        const initShots = p0.prompts.map((p, idx) => buildShot(p, idx));
+        const initShots = [buildShot('', 0), buildShot('', 1)];
         setShots(initShots);
         await saveProjectNow({
           projectId: '',
-          title: p0.name,
+          title: '未命名分镜项目',
           mode: 'storyboard',
-          prefix: p0.prefix,
-          negativePrompt: p0.negative,
-          seed: p0.seed,
+          prefix: STYLE_CHIPS[0].prefix,
+          negativePrompt: DEFAULT_NEGATIVE_PROMPT,
+          seed: 42,
           aspectValue: '1344x768',
           shots: initShots,
         });
@@ -870,9 +899,12 @@ export default function App() {
 
       <main className="max-w-[1560px] mx-auto px-4 lg:px-6 py-4 grid grid-cols-1 lg:grid-cols-[364px_minmax(0,1fr)] gap-5 items-start">
         <DnaSidebar
-          selectedPresetId={selectedPresetId}
-          onSelectPreset={(id) => applyPreset(id, { asNew: true })}
-          onResetPreset={() => applyPreset(selectedPresetId, { asNew: false })}
+          storyIdea={storyIdea}
+          onStoryIdeaChange={setStoryIdea}
+          aiShotCount={aiShotCount}
+          onAiShotCountChange={setAiShotCount}
+          generatingStoryboard={generatingStoryboard}
+          onGenerateStoryboard={handleGenerateStoryboard}
           prefix={prefix}
           onPrefixChange={(v) => {
             setPrefix(v);
