@@ -7,6 +7,7 @@ import {
   SHOT_COUNT_OPTIONS,
   TARGET_DURATION_OPTIONS,
 } from '../../data/presets';
+import BoundedIntInput from './BoundedIntInput';
 import SegmentedControl from './SegmentedControl';
 
 function estimateShotsFromDuration(sec) {
@@ -33,14 +34,19 @@ export default function StoryScopeControl({
   compact = false,
 }) {
   const isDuration = planMode === 'duration';
-  const safeDuration = Math.max(
-    MIN_TARGET_DURATION,
-    Math.min(MAX_TARGET_DURATION, Math.round(Number(targetDuration) || 30))
-  );
-  const safeShots = Math.max(
-    MIN_SHOT_COUNT,
-    Math.min(MAX_SHOT_COUNT, Math.round(Number(shotCount) || 6))
-  );
+  const rawDurNum = Number(targetDuration);
+  const durTooSmall = targetDuration === '' || !Number.isFinite(rawDurNum) || rawDurNum < MIN_TARGET_DURATION;
+  const safeDuration =
+    targetDuration !== '' && Number.isFinite(rawDurNum)
+      ? Math.max(MIN_TARGET_DURATION, Math.min(MAX_TARGET_DURATION, Math.round(rawDurNum)))
+      : MIN_TARGET_DURATION;
+
+  const rawShotsNum = Number(shotCount);
+  const shotsTooSmall = shotCount === '' || !Number.isFinite(rawShotsNum) || rawShotsNum < MIN_SHOT_COUNT;
+  const safeShots =
+    shotCount !== '' && Number.isFinite(rawShotsNum)
+      ? Math.max(MIN_SHOT_COUNT, Math.min(MAX_SHOT_COUNT, Math.round(rawShotsNum)))
+      : MIN_SHOT_COUNT;
   const est = estimateShotsFromDuration(safeDuration);
 
   return (
@@ -81,25 +87,33 @@ export default function StoryScopeControl({
             })}
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-800/90 bg-[#090d14]/90 px-2.5 py-1.5">
+          <div
+            className={`flex items-center justify-between gap-2 rounded-xl border px-2.5 py-1.5 transition-colors ${
+              durTooSmall
+                ? 'border-amber-500/60 bg-amber-500/5'
+                : 'border-slate-800/90 bg-[#090d14]/90'
+            }`}
+          >
             <label className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <span>自定义</span>
-              <input
-                type="number"
+              <BoundedIntInput
                 min={MIN_TARGET_DURATION}
                 max={MAX_TARGET_DURATION}
+                fallback={MIN_TARGET_DURATION}
                 value={targetDuration}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  onTargetDurationChange(v === '' ? '' : Number(v));
-                }}
-                onBlur={() => onTargetDurationChange(safeDuration)}
+                onChange={onTargetDurationChange}
                 className="w-16 rounded-md border border-slate-700/80 bg-[#0c121e] px-2 py-0.5 text-xs tabular-nums text-slate-100 focus:outline-none focus:border-blue-500"
               />
               <span>秒</span>
             </label>
-            <span className={`text-[10px] text-slate-500 tabular-nums ${compact ? 'truncate' : ''}`}>
-              限 {MIN_TARGET_DURATION}~{MAX_TARGET_DURATION}s · 约 {est.count} 镜
+            <span
+              className={`text-[10px] tabular-nums ${compact ? 'truncate' : ''} ${
+                durTooSmall ? 'text-amber-300 font-medium' : 'text-slate-500'
+              }`}
+            >
+              {durTooSmall
+                ? `最少 ${MIN_TARGET_DURATION}s（失焦自动修正）`
+                : `限 ${MIN_TARGET_DURATION}~${MAX_TARGET_DURATION}s · 约 ${est.count} 镜`}
             </span>
           </div>
         </div>
@@ -125,25 +139,33 @@ export default function StoryScopeControl({
             })}
           </div>
 
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-800/90 bg-[#090d14]/90 px-2.5 py-1.5">
+          <div
+            className={`flex items-center justify-between gap-2 rounded-xl border px-2.5 py-1.5 transition-colors ${
+              shotsTooSmall
+                ? 'border-amber-500/60 bg-amber-500/5'
+                : 'border-slate-800/90 bg-[#090d14]/90'
+            }`}
+          >
             <label className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <span>自定义</span>
-              <input
-                type="number"
+              <BoundedIntInput
                 min={MIN_SHOT_COUNT}
                 max={MAX_SHOT_COUNT}
+                fallback={MIN_SHOT_COUNT}
                 value={shotCount}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  onShotCountChange(v === '' ? '' : Number(v));
-                }}
-                onBlur={() => onShotCountChange(safeShots)}
+                onChange={onShotCountChange}
                 className="w-16 rounded-md border border-slate-700/80 bg-[#0c121e] px-2 py-0.5 text-xs tabular-nums text-slate-100 focus:outline-none focus:border-blue-500"
               />
               <span>镜</span>
             </label>
-            <span className={`text-[10px] text-slate-500 tabular-nums ${compact ? 'truncate' : ''}`}>
-              限 {MIN_SHOT_COUNT}~{MAX_SHOT_COUNT} 镜 · 约 {safeShots * 4}s
+            <span
+              className={`text-[10px] tabular-nums ${compact ? 'truncate' : ''} ${
+                shotsTooSmall ? 'text-amber-300 font-medium' : 'text-slate-500'
+              }`}
+            >
+              {shotsTooSmall
+                ? `最少 ${MIN_SHOT_COUNT} 镜（失焦自动修正）`
+                : `限 ${MIN_SHOT_COUNT}~${MAX_SHOT_COUNT} 镜 · 约 ${safeShots * 4}s`}
             </span>
           </div>
         </div>

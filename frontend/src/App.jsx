@@ -316,14 +316,18 @@ export default function App() {
       pushToast('请先输入故事创意或主题', 'error');
       return;
     }
+    const rawDur = aiTargetDuration === '' ? MIN_TARGET_DURATION : Number(aiTargetDuration);
     const clampedDuration = Math.max(
       MIN_TARGET_DURATION,
-      Math.min(MAX_TARGET_DURATION, Math.round(Number(aiTargetDuration) || 30))
+      Math.min(MAX_TARGET_DURATION, Number.isFinite(rawDur) ? Math.round(rawDur) : MIN_TARGET_DURATION)
     );
+    const rawShots = aiShotCount === '' ? MIN_SHOT_COUNT : Number(aiShotCount);
     const clampedShots = Math.max(
       MIN_SHOT_COUNT,
-      Math.min(MAX_SHOT_COUNT, Math.round(Number(aiShotCount) || 6))
+      Math.min(MAX_SHOT_COUNT, Number.isFinite(rawShots) ? Math.round(rawShots) : MIN_SHOT_COUNT)
     );
+    setAiTargetDuration(clampedDuration);
+    setAiShotCount(clampedShots);
     setGeneratingStoryboard(true);
     try {
       const r = await fetch('/api/storyboard', {

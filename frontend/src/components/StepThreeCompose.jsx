@@ -19,6 +19,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { DURATION_OPTIONS, MOTION_OPTIONS, TRANSITION_OPTIONS } from '../data/presets';
+import BoundedIntInput from './ui/BoundedIntInput';
 import ComposePanel from './ComposePanel';
 import PromptTagsField from './ui/PromptTagsField';
 import SegmentedControl from './ui/SegmentedControl';
@@ -387,23 +388,23 @@ export default function StepThreeCompose({
               <div className="flex items-center gap-2">
                 <label className="flex items-center gap-1 text-[11px] text-slate-400">
                   <span>时长(s)</span>
-                  <input
-                    type="number"
+                  <BoundedIntInput
                     min={8}
                     max={180}
+                    fallback={24}
                     value={bgmDuration}
-                    onChange={(e) => onBgmDurationChange(Number(e.target.value) || 24)}
+                    onChange={onBgmDurationChange}
                     className="w-12 rounded-md border border-slate-700/80 bg-[#090d14] px-1.5 py-1 text-[11px] tabular-nums text-slate-100 focus:outline-none focus:border-cyan-500"
                   />
                 </label>
                 <label className="flex items-center gap-1 text-[11px] text-slate-400">
                   <span>BPM</span>
-                  <input
-                    type="number"
+                  <BoundedIntInput
                     min={40}
                     max={200}
+                    fallback={96}
                     value={bgmBpm}
-                    onChange={(e) => onBgmBpmChange(Number(e.target.value) || 96)}
+                    onChange={onBgmBpmChange}
                     className="w-12 rounded-md border border-slate-700/80 bg-[#090d14] px-1.5 py-1 text-[11px] tabular-nums text-slate-100 focus:outline-none focus:border-cyan-500"
                   />
                 </label>

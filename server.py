@@ -788,15 +788,33 @@ class Handler(BaseHTTPRequestHandler):
         if not idea:
             self._json({"error": "请先输入故事创意或主题"}, 400)
             return
-        try:
-            shot_count = max(2, min(30, int(data.get("shot_count") or 6)))
-        except (TypeError, ValueError):
+        raw_shot_count = data.get("shot_count")
+        if raw_shot_count is None:
             shot_count = 6
-        try:
-            raw_dur = float(data.get("target_duration") or 0)
-        except (TypeError, ValueError):
-            raw_dur = 0.0
-        target_duration = max(10, min(300, int(round(raw_dur)))) if raw_dur > 0 else 0
+        elif (
+            isinstance(raw_shot_count, bool)
+            or not isinstance(raw_shot_count, int)
+            or raw_shot_count < 2
+            or raw_shot_count > 30
+        ):
+            self._json({"error": "目标镜头数仅支持 2 ~ 30 的整数"}, 400)
+            return
+        else:
+            shot_count = raw_shot_count
+
+        raw_dur = data.get("target_duration")
+        if raw_dur is None or raw_dur == 0:
+            target_duration = 0
+        elif (
+            isinstance(raw_dur, bool)
+            or not isinstance(raw_dur, int)
+            or raw_dur < 10
+            or raw_dur > 300
+        ):
+            self._json({"error": "目标时长仅支持 10 ~ 300 秒整数"}, 400)
+            return
+        else:
+            target_duration = raw_dur
         try:
             res = generate_storyboard(
                 idea=idea,
