@@ -163,7 +163,7 @@ function CompactShotRow({
 }) {
   const tags = splitPromptTags(shot.prompt);
   const hasCamera = tags.length > 0 && CAMERA_FRAMING_RE.test(tags[0]);
-  const promptPreview = (hasCamera ? tags.slice(1) : tags).join(', ') || shot.prompt || '待填写画面提示词';
+  const promptPreview = (hasCamera ? tags.slice(1) : tags).join(', ') || shot.prompt || '待填写英文画面提示词';
 
   return (
     <div
@@ -177,71 +177,76 @@ function CompactShotRow({
           onExpand();
         }
       }}
-      className="group rounded-xl border border-slate-800/90 hover:border-blue-500/45 bg-[#111827]/90 hover:bg-[#141d2e] px-3 py-2 flex items-center gap-3 cursor-pointer transition-colors"
+      className="group rounded-xl border border-slate-800/90 hover:border-blue-500/45 bg-[#111827]/90 hover:bg-[#141d2e] px-3.5 py-2.5 space-y-1.5 cursor-pointer transition-colors"
     >
-      <div className="flex items-center gap-1.5 shrink-0">
-        <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 text-[11px] font-mono font-bold text-blue-300 tabular-nums">
-          #{String(index + 1).padStart(2, '0')}
-        </span>
-        {hasCamera ? (
-          <span className="hidden sm:inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium text-cyan-200 max-w-[96px] truncate">
-            {tags[0]}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 text-[11px] font-mono font-bold text-blue-300 tabular-nums shrink-0">
+            #{String(index + 1).padStart(2, '0')}
           </span>
-        ) : null}
+          {hasCamera ? (
+            <span className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium text-cyan-200 shrink-0">
+              {tags[0]}
+            </span>
+          ) : null}
+          <span className="text-[10px] text-slate-500 tabular-nums shrink-0">
+            · {shot.duration || 4}s
+          </span>
+        </div>
+
+        <div
+          className="flex items-center gap-1 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={index === 0}
+            title="上移"
+            className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-30 p-1 text-slate-400 hover:text-slate-100 cursor-pointer"
+          >
+            <ArrowUp className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={index === total - 1}
+            title="下移"
+            className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-30 p-1 text-slate-400 hover:text-slate-100 cursor-pointer"
+          >
+            <ArrowDown className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title="删除此镜"
+            className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-rose-500/15 hover:border-rose-500/40 p-1 text-slate-400 hover:text-rose-300 cursor-pointer"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onExpand}
+            title="展开编辑旁白与提示词"
+            className="inline-flex items-center gap-0.5 rounded-md border border-slate-700/80 bg-[#0c121e] group-hover:border-blue-500/40 group-hover:text-blue-200 px-2 py-0.5 text-[10px] font-medium text-slate-300 cursor-pointer"
+          >
+            <ChevronDown className="w-3 h-3" />
+            <span>展开编辑</span>
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-1.5 md:gap-3 items-center">
-        <p className="text-[13px] text-slate-100 truncate">
-          {shot.narration?.trim() || <span className="text-slate-500">暂无中文旁白</span>}
-        </p>
-        <p className="text-[11px] text-slate-400 truncate">
-          {promptPreview}
-        </p>
-      </div>
+      {/* Full readable Chinese narration (no truncation) */}
+      <p className="text-[13.5px] leading-relaxed text-slate-100 whitespace-pre-wrap break-words">
+        {shot.narration?.trim() || <span className="text-slate-500 text-xs">暂无中文旁白（点击展开填写）</span>}
+      </p>
 
-      <div
-        className="flex items-center gap-1 shrink-0"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <span className="text-[10px] text-slate-500 tabular-nums mr-1 hidden sm:inline">
-          {shot.duration || 4}s
-        </span>
-        <button
-          type="button"
-          onClick={onMoveUp}
-          disabled={index === 0}
-          title="上移"
-          className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-30 p-1 text-slate-400 hover:text-slate-100 cursor-pointer"
-        >
-          <ArrowUp className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onMoveDown}
-          disabled={index === total - 1}
-          title="下移"
-          className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-30 p-1 text-slate-400 hover:text-slate-100 cursor-pointer"
-        >
-          <ArrowDown className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          title="删除此镜"
-          className="rounded-md border border-slate-800 bg-[#0c121e] hover:bg-rose-500/15 hover:border-rose-500/40 p-1 text-slate-400 hover:text-rose-300 cursor-pointer"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onExpand}
-          title="展开详细编辑"
-          className="inline-flex items-center gap-0.5 rounded-md border border-slate-700/80 bg-[#0c121e] group-hover:border-blue-500/40 group-hover:text-blue-200 px-1.5 py-1 text-[10px] text-slate-300 cursor-pointer"
-        >
-          <ChevronDown className="w-3 h-3" />
-          <span className="hidden sm:inline">展开</span>
-        </button>
-      </div>
+      {/* Subtle 1-line visual prompt preview */}
+      <p className="text-[11px] text-slate-500 truncate">
+        <span className="text-slate-400 mr-1">画面:</span>
+        {promptPreview}
+        {tags.length > 0 ? <span className="text-slate-600 ml-1.5">({tags.length} 标签)</span> : null}
+      </p>
     </div>
   );
 }
