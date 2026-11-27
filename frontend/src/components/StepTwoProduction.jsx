@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -52,13 +53,24 @@ export default function StepTwoProduction({
   onPreview,
   onPrevStep,
   onNextStep,
+  onBlockedNextStep,
 }) {
+  const [highlightPrimary, setHighlightPrimary] = useState(false);
+  const highlightTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
   const promptShots = shots.filter((s) => (s.prompt || '').trim().length > 0);
   const narrShots = shots.filter((s) => (s.narration || '').trim().length > 0);
   const missingTtsCount = narrShots.filter((s) => !s.ttsFilename).length;
   const missingImageCount = promptShots.filter((s) => !s.filename).length;
   const allReady = shots.length > 0 && missingImageCount === 0 && (missingTtsCount === 0 || !ttsConfigured);
   const isProducing = generatingTts || batchRunning;
+  const nextBlocked = readyCount === 0;
   const providerLabel = ttsProvider === 'doubao' ? '豆包' : '百炼';
 
   const primaryDisabled =
@@ -87,13 +99,33 @@ export default function StepTwoProduction({
     primaryHandler = onGenerateTtsMissing;
   }
 
+  const handleNextClick = () => {
+    if (!nextBlocked) {
+      onNextStep();
+      return;
+    }
+    const msg = isProducing
+      ? '正在生成配音与分镜图，请等待至少 1 镜完成后再进入下一步'
+      : `请先点击左侧「${primaryLabel}」，至少生成 1 镜后再进入下一步`;
+    onBlockedNextStep?.(msg);
+    setHighlightPrimary(true);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightPrimary(false), 2400);
+  };
+
   return (
     <main className="max-w-[1560px] mx-auto px-4 lg:px-6 py-5 space-y-4">
       {/* Sticky Unified Production Action Bar */}
       <div className="sticky top-[64px] z-30 rounded-2xl border border-slate-800/90 bg-[#111827]/95 backdrop-blur-md p-3.5 shadow-lg shadow-black/30 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Voice selector + Unified Produce CTA */}
-          <div className="flex items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/5 px-2.5 py-1.5 flex-wrap">
+          <div
+            className={`flex items-center gap-2 rounded-xl border px-2.5 py-1.5 flex-wrap transition-all ${
+              highlightPrimary
+                ? 'border-amber-400/90 bg-amber-500/15 ring-2 ring-amber-400/70'
+                : 'border-blue-500/25 bg-blue-500/5'
+            }`}
+          >
             <div className="flex items-center gap-1.5">
               <Mic className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <SelectDropdown
@@ -220,9 +252,20 @@ export default function StepTwoProduction({
 
           <button
             type="button"
-            onClick={onNextStep}
-            disabled={readyCount === 0}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-teal-950/40 transition-all cursor-pointer"
+            onClick={handleNextClick}
+            aria-disabled={nextBlocked}
+            title={
+              nextBlocked
+                ? isProducing
+                  ? '正在生成分镜图，请等待至少 1 镜就绪'
+                  : `请先点击左侧「${primaryLabel}」`
+                : '进入 Step 3：运镜与成片合成'
+            }
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all ${
+              nextBlocked
+                ? 'border border-slate-700/80 bg-[#0c121e]/80 text-slate-400 hover:border-amber-500/45 hover:text-amber-200 cursor-not-allowed'
+                : 'bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-500 hover:to-teal-500 text-white shadow-md shadow-teal-950/40 cursor-pointer'
+            }`}
           >
             <span>下一步：运镜与成片</span>
             <ArrowRight className="w-3.5 h-3.5" />

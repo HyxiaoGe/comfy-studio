@@ -1494,6 +1494,7 @@ export default function App() {
               onPreview={setLightboxSrc}
               onPrevStep={() => navigateStep(1)}
               onNextStep={() => navigateStep(3)}
+              onBlockedNextStep={(msg) => pushToast(msg, 'info')}
             />
           ) : (
             <StepThreeCompose
