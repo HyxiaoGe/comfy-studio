@@ -1391,6 +1391,7 @@ export default function App() {
             />
           ) : (
             <StepThreeCompose
+              title={title}
               shots={shots}
               aspect={aspect}
               readyCount={readyCount}

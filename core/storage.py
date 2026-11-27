@@ -358,9 +358,12 @@ class StudioStorage:
         if row is None:
             return None
         fname = row["filename"] or ""
+        keys = row.keys()
+        proj_title = row["project_title"] if "project_title" in keys and row["project_title"] else ""
         return {
             "id": row["id"],
             "project_id": row["project_id"],
+            "project_title": proj_title,
             "status": row["status"],
             "done": row["done"],
             "total": row["total"],
@@ -429,14 +432,27 @@ class StudioStorage:
     def get_composition(self, cid):
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM compositions WHERE id = ?", (cid,)
+                """
+                SELECT c.*, COALESCE(p.title, '') AS project_title
+                FROM compositions c
+                LEFT JOIN projects p ON c.project_id = p.id
+                WHERE c.id = ?
+                """,
+                (cid,),
             ).fetchone()
         return self._row_to_composition(row)
 
     def list_compositions(self, limit=40, composed_dir=None):
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM compositions ORDER BY created_at DESC LIMIT ?", (int(limit),)
+                """
+                SELECT c.*, COALESCE(p.title, '') AS project_title
+                FROM compositions c
+                LEFT JOIN projects p ON c.project_id = p.id
+                ORDER BY c.created_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
             ).fetchall()
         out = []
         for row in rows:

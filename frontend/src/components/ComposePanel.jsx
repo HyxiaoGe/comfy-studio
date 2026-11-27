@@ -1,9 +1,12 @@
 import { Download, Film, X } from 'lucide-react';
 
-export default function ComposePanel({ state, onClose }) {
+export default function ComposePanel({ state, title, onClose }) {
   if (!state?.visible) return null;
 
   const pct = state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : 0;
+  const downloadName = title
+    ? `${title.replace(/[\\/:*?"<>|]/g, '_')}.mp4`
+    : state.filename || 'storyboard.mp4';
 
   return (
     <section className="rounded-2xl border border-cyan-500/35 bg-[#111827]/95 p-4 shadow-xl shadow-black/40">
@@ -22,7 +25,7 @@ export default function ComposePanel({ state, onClose }) {
           {state.videoUrl ? (
             <a
               href={state.videoUrl}
-              download={state.filename || 'storyboard.mp4'}
+              download={downloadName}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
             >
               <Download className="w-3.5 h-3.5" />

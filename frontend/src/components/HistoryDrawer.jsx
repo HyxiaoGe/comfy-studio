@@ -151,14 +151,19 @@ export default function HistoryDrawer({
           ) : compositions.length === 0 ? (
             <div className="text-center text-xs text-slate-500 py-12">暂无合成成片</div>
           ) : (
-            compositions.map((c) => (
+            compositions.map((c) => {
+              const displayTitle = c.project_title || c.filename || `合成任务 ${c.id}`;
+              const downloadName = c.project_title
+                ? `${c.project_title.replace(/[\\/:*?"<>|]/g, '_')}.mp4`
+                : c.filename;
+              return (
               <div
                 key={c.id}
                 className="rounded-xl border border-slate-800 bg-[#111827]/90 hover:border-slate-700 p-3 flex items-center justify-between gap-3"
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-semibold text-slate-100 truncate">
-                    {c.filename || `合成任务 ${c.id}`}
+                    {displayTitle}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
                     {c.status === 'done' ? (c.file_exists ? '可播放' : '文件已移除') : c.status} ·{' '}
@@ -180,8 +185,8 @@ export default function HistoryDrawer({
                       </button>
                       <a
                         href={c.video_url}
-                        download={c.filename}
-                        title="下载 MP4"
+                        download={downloadName}
+                        title={`下载 ${downloadName}`}
                         className="rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 p-1.5 text-slate-300"
                       >
                         <Download className="w-3.5 h-3.5" />
@@ -198,7 +203,8 @@ export default function HistoryDrawer({
                   </button>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </aside>
