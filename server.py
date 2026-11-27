@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
+from core.bgm_runner import build_bgm_workflow  # noqa: E402
 from core.comfy_client import (  # noqa: E402
     DEFAULT_SERVER,
     check_comfyui_health,
@@ -51,6 +52,7 @@ from core.llm_client import (  # noqa: E402
     get_llm_config,
     is_llm_configured,
     load_dotenv,
+    suggest_bgm_tags,
 )
 from core.storage import StudioStorage  # noqa: E402
 from core.tts_client import (  # noqa: E402
@@ -62,6 +64,7 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 COMFYUI = DEFAULT_SERVER
 WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
+BGM_WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "ace_step_bgm_api.json")
 WEB_DIST_DIR = os.path.join(BASE_DIR, "web", "dist")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
@@ -201,6 +204,46 @@ def new_job(
     return job
 
 
+def new_bgm_job(
+    tags,
+    lyrics="[Instrumental]",
+    duration=24.0,
+    seed=42,
+    bpm=96,
+    file_id="",
+    project_id="",
+):
+    job_id = uuid.uuid4().hex[:12]
+    safe_fid = (file_id or "").strip() or f"ai_bgm_{job_id}"
+    job = {
+        "id": job_id,
+        "project_id": project_id or "",
+        "mode": "bgm",
+        "prompts": [tags],
+        "negative_prompt": "",
+        "seed": seed,
+        "width": 0,
+        "height": 0,
+        "tags": tags,
+        "lyrics": lyrics,
+        "duration": duration,
+        "bpm": bpm,
+        "file_id": safe_fid,
+        "status": "queued",
+        "done": 0,
+        "total": 1,
+        "current_index": 0,
+        "results": [],
+        "items": [],
+        "error": "",
+    }
+    with jobs_lock:
+        jobs[job_id] = job
+    get_store().create_job(job)
+    job_queue.put(job_id)
+    return job
+
+
 def new_compose_job(
     shots,
     shots_meta,
@@ -252,6 +295,47 @@ def run_job(job_id):
         job = jobs[job_id]
         job["status"] = "running"
     st.update_job(job_id, status="running")
+
+    if job.get("mode") == "bgm":
+        with jobs_lock:
+            job["current_index"] = 1
+        st.update_job(job_id, current_index=1)
+        template = load_json(BGM_WORKFLOW_PATH)
+        fid = job.get("file_id") or f"ai_bgm_{job_id}"
+        wf = build_bgm_workflow(
+            template,
+            tags=job.get("tags") or "",
+            lyrics=job.get("lyrics") or "[Instrumental]",
+            duration=job.get("duration") or 24.0,
+            seed=job.get("seed", 42),
+            bpm=job.get("bpm") or 96,
+            filename_prefix=f"audio/{fid}",
+        )
+        prompt_id = queue_prompt(COMFYUI, wf, CLIENT_ID)
+        entry = wait_history(COMFYUI, prompt_id, DEFAULT_TIMEOUT)
+        saved = download_outputs(
+            COMFYUI, entry, AUDIO_DIR, fid, media_keys=("audio",), overwrite=True
+        )
+        with jobs_lock:
+            for p in saved:
+                fname = os.path.basename(p)
+                job["results"].append(fname)
+                job["items"].append({
+                    "filename": fname,
+                    "url": f"/audio/{fname}",
+                    "path": os.path.abspath(p),
+                    "tags": job.get("tags") or "",
+                    "duration": job.get("duration") or 24.0,
+                    "bpm": job.get("bpm") or 96,
+                    "seed": job.get("seed", 42),
+                })
+            job["done"] = 1
+            results_copy = list(job["results"])
+            items_copy = list(job["items"])
+        st.update_job(job_id, done=1, results=results_copy, items=items_copy, status="done")
+        with jobs_lock:
+            job["status"] = "done"
+        return
 
     template = load_json(WORKFLOW_PATH)
     (pos_id, _pos_node), neg = pick_prompt_nodes(template)
@@ -403,6 +487,7 @@ def health():
     tts_cfg = get_tts_config()
     return {
         "workflow_loaded": os.path.exists(WORKFLOW_PATH),
+        "bgm_workflow_loaded": os.path.exists(BGM_WORKFLOW_PATH),
         "comfyui": "ok" if check_comfyui_health(COMFYUI) else "unreachable",
         "ffmpeg": has_ffmpeg(),
         "nvenc": detect_nvenc(),
@@ -620,6 +705,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_storyboard()
         elif path == "/api/tts":
             self._handle_tts()
+        elif path == "/api/bgm/generate":
+            self._handle_bgm_generate()
+        elif path == "/api/bgm/suggest":
+            self._handle_bgm_suggest()
         elif path == "/api/upload-audio":
             self._handle_upload_binary(AUDIO_DIR, (".mp3", ".wav", ".m4a", ".ogg", ".flac"), 30 * 1024 * 1024, "/audio/")
         elif path == "/api/upload-image":
@@ -754,6 +843,57 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             code = 400 if "未配置" in str(e) else 502
             self._json({"error": str(e)}, code)
+
+    def _handle_bgm_suggest(self):
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        try:
+            res = suggest_bgm_tags(
+                title=data.get("title") or "",
+                prefix=data.get("prefix") or "",
+                narrations=data.get("narrations") or [],
+            )
+            self._json(res)
+        except Exception as e:  # noqa: BLE001
+            code = 400 if "未配置" in str(e) else 502
+            self._json({"error": str(e)}, code)
+
+    def _handle_bgm_generate(self):
+        if not os.path.isfile(BGM_WORKFLOW_PATH):
+            self._json({"error": "服务端缺少 ACE-Step 1.5 配乐工作流模板"}, 500)
+            return
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        tags = (data.get("tags") or "").strip()
+        if not tags:
+            self._json({"error": "请先输入配乐风格描述 (tags)"}, 400)
+            return
+        lyrics = (data.get("lyrics") or "").strip() or "[Instrumental]"
+        try:
+            duration = max(5.0, min(180.0, float(data.get("duration") or 24.0)))
+        except (TypeError, ValueError):
+            duration = 24.0
+        try:
+            bpm = max(40, min(220, int(round(float(data.get("bpm") or 96)))))
+        except (TypeError, ValueError):
+            bpm = 96
+        seed = data.get("seed")
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            seed = abs(hash(f"{tags}_{duration}")) % 2147483647 or 42
+        project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
+        job = new_bgm_job(
+            tags=tags,
+            lyrics=lyrics,
+            duration=duration,
+            seed=seed,
+            bpm=bpm,
+            project_id=project_id,
+        )
+        self._json({"job_id": job["id"]}, 202)
 
     def _handle_save_project(self):
         data, err = self._read_json_body()

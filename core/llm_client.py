@@ -294,3 +294,69 @@ def generate_storyboard(
         },
         "model": raw.get("model") or cfg["model"],
     }
+
+
+def suggest_bgm_tags(title="", prefix="", narrations=None, timeout=45):
+    """根据项目标题、画风和旁白，推荐适合 ACE-Step 1.5 生成纯音乐 BGM 的英文 tags 与 bpm。"""
+    cfg = get_llm_config()
+    if not cfg["api_key"]:
+        raise RuntimeError(
+            "未配置 DEEPSEEK_API_KEY（或 LLM_API_KEY），请先在项目根目录 .env 或环境变量中设置"
+        )
+    narr_text = "；".join(str(x).strip() for x in (narrations or []) if str(x).strip())[:500]
+    system_msg = (
+        "你是一位影视与绘本配乐总监，负责为 ACE-Step 1.5 AI 音乐生成模型撰写英文风格描述（tags）和建议 BPM。\n"
+        "严格返回 JSON 对象：\n"
+        '{"tags": "英文风格标签与乐器情绪描述（包含 instrumental, no vocals，例如: Warm acoustic guitar, gentle felt piano, soft glockenspiel bells, cozy healing storybook instrumental, no vocals）", "bpm": 92}\n'
+        "要求：\n"
+        "1. tags 必须使用英文，描述乐器、情绪、质感与节奏，并明确适合做视频旁白背景音乐（instrumental, no vocals, gentle, warm 等）；\n"
+        "2. bpm 为 65~135 之间的整数；\n"
+        "3. 只输出合法 JSON 对象。"
+    )
+    user_msg = (
+        f"视频标题：{(title or '').strip() or '温馨短片'}\n"
+        f"画面画风：{(prefix or '').strip()[:240]}\n"
+        f"旁白摘录：{narr_text or '无'}\n"
+    )
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ],
+        "temperature": 0.6,
+        "response_format": {"type": "json_object"},
+    }
+    req = urllib.request.Request(
+        _chat_endpoint(cfg["base_url"]),
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {cfg['api_key']}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"DeepSeek API 返回 HTTP {e.code}：{err_body[:300]}") from e
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"调用大模型接口失败：{e}") from e
+
+    choices = raw.get("choices") or []
+    content = (choices[0].get("message") or {}).get("content") or "" if choices else ""
+    parsed = _extract_json_obj(content)
+    tags = str(parsed.get("tags") or "").strip()
+    if not tags:
+        raise RuntimeError("大模型未返回有效的配乐风格描述")
+    try:
+        bpm = max(60, min(140, int(round(float(parsed.get("bpm") or 92)))))
+    except (TypeError, ValueError):
+        bpm = 92
+    return {
+        "tags": tags,
+        "bpm": bpm,
+        "model": raw.get("model") or cfg["model"],
+    }

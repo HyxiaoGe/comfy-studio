@@ -102,6 +102,13 @@ export default function App() {
   const [audioFiles, setAudioFiles] = useState([]);
   const [bgmFilename, setBgmFilename] = useState('');
   const [bgmVolume, setBgmVolume] = useState(0.32);
+  const [bgmTags, setBgmTags] = useState(
+    "Warm acoustic guitar, gentle felt piano, soft glockenspiel bells, cozy healing children's storybook instrumental, no vocals"
+  );
+  const [bgmBpm, setBgmBpm] = useState(92);
+  const [bgmDuration, setBgmDuration] = useState(25);
+  const [suggestingBgm, setSuggestingBgm] = useState(false);
+  const [generatingBgm, setGeneratingBgm] = useState(false);
 
   const [health, setHealth] = useState(null);
   const [gpuProgress, setGpuProgress] = useState({ text: '显卡队列：空闲', done: 0, total: 1, busy: false });
@@ -125,6 +132,7 @@ export default function App() {
 
   const batchTimerRef = useRef(null);
   const composeTimerRef = useRef(null);
+  const bgmTimerRef = useRef(null);
   const saveTimerRef = useRef(null);
   const initializedRef = useRef(false);
 
@@ -545,6 +553,7 @@ export default function App() {
       cancelled = true;
       clearInterval(batchTimerRef.current);
       clearInterval(composeTimerRef.current);
+      clearInterval(bgmTimerRef.current);
       clearTimeout(saveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -654,6 +663,90 @@ export default function App() {
       pushToast(`已上传背景音乐：${data.filename}`, 'success');
     } catch (e) {
       pushToast(`上传失败：${e.message}`, 'error');
+    }
+  };
+
+  const handleSuggestBgmTags = async () => {
+    setSuggestingBgm(true);
+    try {
+      const r = await fetch('/api/bgm/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          prefix,
+          narrations: shots.map((s) => s.narration).filter(Boolean),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (data.tags) setBgmTags(data.tags);
+      if (data.bpm) setBgmBpm(data.bpm);
+      pushToast(`已用 ${data.model || 'DeepSeek'} 匹配配乐风格`, 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    } finally {
+      setSuggestingBgm(false);
+    }
+  };
+
+  const handleGenerateBgm = async () => {
+    const cleanTags = bgmTags.trim();
+    if (!cleanTags) {
+      pushToast('请先输入或匹配配乐风格描述', 'error');
+      return;
+    }
+    setGeneratingBgm(true);
+    try {
+      const r = await fetch('/api/bgm/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId || '',
+          tags: cleanTags,
+          lyrics: '[Instrumental]',
+          duration: bgmDuration,
+          bpm: bgmBpm,
+          seed: randomSeed(),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+      clearInterval(bgmTimerRef.current);
+      const pollBgm = async () => {
+        try {
+          const sr = await fetch(`/api/status/${data.job_id}`);
+          const sj = await sr.json();
+          if (sj.status === 'done') {
+            clearInterval(bgmTimerRef.current);
+            setGeneratingBgm(false);
+            const fname = (sj.results || [])[0];
+            await fetchLists();
+            if (fname) {
+              setBgmFilename(fname);
+              pushToast(`AI 配乐已生成并选用：${fname}`, 'success');
+            } else {
+              pushToast('配乐生成完成', 'success');
+            }
+            refreshHealth();
+          } else if (sj.status === 'failed' || sj.status === 'interrupted') {
+            clearInterval(bgmTimerRef.current);
+            setGeneratingBgm(false);
+            pushToast(`AI 配乐失败：${sj.error || '未知错误'}`, 'error');
+          }
+        } catch (err) {
+          clearInterval(bgmTimerRef.current);
+          setGeneratingBgm(false);
+          pushToast(`查询配乐进度失败：${err.message}`, 'error');
+        }
+      };
+
+      bgmTimerRef.current = setInterval(pollBgm, 1500);
+      pollBgm();
+    } catch (e) {
+      setGeneratingBgm(false);
+      pushToast(`提交 AI 配乐失败：${e.message}`, 'error');
     }
   };
 
@@ -1316,6 +1409,18 @@ export default function App() {
               bgmVolume={bgmVolume}
               onBgmVolumeChange={setBgmVolume}
               onUploadAudio={handleUploadAudio}
+              bgmTags={bgmTags}
+              onBgmTagsChange={setBgmTags}
+              bgmBpm={bgmBpm}
+              onBgmBpmChange={setBgmBpm}
+              bgmDuration={bgmDuration}
+              onBgmDurationChange={setBgmDuration}
+              suggestingBgm={suggestingBgm}
+              onSuggestBgmTags={handleSuggestBgmTags}
+              generatingBgm={generatingBgm}
+              onGenerateBgm={handleGenerateBgm}
+              bgmWorkflowLoaded={Boolean(health?.bgm_workflow_loaded)}
+              llmConfigured={Boolean(health?.llm_configured)}
               composing={composing}
               onCompose={handleCompose}
               onChangeMotion={updateShotMotion}

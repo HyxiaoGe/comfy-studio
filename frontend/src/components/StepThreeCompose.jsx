@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Download,
@@ -9,8 +9,12 @@ import {
   MoveRight,
   Music,
   Pause,
+  Play,
+  Sparkles,
+  Square,
   Upload,
   Volume2,
+  Wand2,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -27,6 +31,29 @@ const MOTION_ICONS = {
   MoveLeft,
   Pause,
 };
+
+const BGM_MOOD_PRESETS = [
+  {
+    label: '温暖绘本',
+    bpm: 92,
+    tags: "Warm acoustic guitar, gentle felt piano, soft glockenspiel bells, cozy healing children's storybook instrumental, no vocals",
+  },
+  {
+    label: '轻快科普',
+    bpm: 112,
+    tags: 'Bright marimba, light pizzicato strings, upbeat cheerful educational background music, clean modern synth pluck, instrumental, no vocals',
+  },
+  {
+    label: '治愈抒情',
+    bpm: 78,
+    tags: 'Soft cinematic piano, lush warm string pad, delicate cello, nostalgic emotional film score, instrumental, no vocals',
+  },
+  {
+    label: '星空夜晚',
+    bpm: 84,
+    tags: 'Dreamy music box, ambient warm pads, soft harp arpeggios, peaceful starry lullaby instrumental, no vocals',
+  },
+];
 
 export default function StepThreeCompose({
   shots,
@@ -47,6 +74,18 @@ export default function StepThreeCompose({
   bgmVolume,
   onBgmVolumeChange,
   onUploadAudio,
+  bgmTags,
+  onBgmTagsChange,
+  bgmBpm,
+  onBgmBpmChange,
+  bgmDuration,
+  onBgmDurationChange,
+  suggestingBgm,
+  onSuggestBgmTags,
+  generatingBgm,
+  onGenerateBgm,
+  bgmWorkflowLoaded,
+  llmConfigured,
   composing,
   onCompose,
   onChangeMotion,
@@ -54,6 +93,41 @@ export default function StepThreeCompose({
   onPrevStep,
 }) {
   const audioInputRef = useRef(null);
+  const bgmAudioRef = useRef(null);
+  const [playingBgm, setPlayingBgm] = useState(false);
+
+  useEffect(() => {
+    if (bgmAudioRef.current) {
+      bgmAudioRef.current.pause();
+      bgmAudioRef.current = null;
+      setPlayingBgm(false);
+    }
+  }, [bgmFilename]);
+
+  useEffect(() => {
+    return () => {
+      if (bgmAudioRef.current) {
+        bgmAudioRef.current.pause();
+        bgmAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  const togglePlayBgm = () => {
+    if (!bgmFilename) return;
+    if (playingBgm && bgmAudioRef.current) {
+      bgmAudioRef.current.pause();
+      bgmAudioRef.current.currentTime = 0;
+      setPlayingBgm(false);
+      return;
+    }
+    if (bgmAudioRef.current) bgmAudioRef.current.pause();
+    const audio = new Audio(`/audio/${encodeURIComponent(bgmFilename)}`);
+    bgmAudioRef.current = audio;
+    audio.onended = () => setPlayingBgm(false);
+    audio.onerror = () => setPlayingBgm(false);
+    audio.play().then(() => setPlayingBgm(true)).catch(() => setPlayingBgm(false));
+  };
 
   const bgmOptions = [
     { value: '', label: '无背景音乐', badge: '静音' },
@@ -232,6 +306,19 @@ export default function StepThreeCompose({
             />
             {bgmFilename ? (
               <div className="mt-2.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={togglePlayBgm}
+                  title={playingBgm ? '停止试听 BGM' : '试听当前 BGM'}
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 hover:bg-cyan-500/30 px-2 py-1 text-[11px] font-medium text-cyan-200 cursor-pointer shrink-0"
+                >
+                  {playingBgm ? (
+                    <Square className="w-2.5 h-2.5 fill-current" />
+                  ) : (
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                  )}
+                  <span>试听</span>
+                </button>
                 <span className="text-[11px] text-slate-400 shrink-0">音量</span>
                 <input
                   type="range"
@@ -246,6 +333,97 @@ export default function StepThreeCompose({
                 </span>
               </div>
             ) : null}
+
+            {/* AI BGM Generator (ACE-Step 1.5) */}
+            <div className="mt-3 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-cyan-200">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>AI 生成配乐 (ACE-Step 1.5)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={onSuggestBgmTags}
+                  disabled={suggestingBgm || !llmConfigured}
+                  title="由 DeepSeek 根据当前故事自动匹配英文配乐描述"
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-500/35 bg-indigo-500/15 hover:bg-indigo-500/30 disabled:opacity-45 px-2 py-0.5 text-[10px] font-medium text-indigo-200 cursor-pointer transition-colors"
+                >
+                  {suggestingBgm ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-3 h-3" />
+                  )}
+                  <span>AI 匹配风格</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-1">
+                {BGM_MOOD_PRESETS.map((m) => (
+                  <button
+                    key={m.label}
+                    type="button"
+                    onClick={() => {
+                      onBgmTagsChange(m.tags);
+                      onBgmBpmChange(m.bpm);
+                    }}
+                    className="rounded-full border border-slate-700/80 bg-slate-900/80 hover:border-cyan-400/60 hover:text-cyan-200 px-2 py-0.5 text-[10px] text-slate-400 cursor-pointer transition-colors"
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                rows={2}
+                value={bgmTags}
+                onChange={(e) => onBgmTagsChange(e.target.value)}
+                placeholder="英文音乐风格描述（如 Warm acoustic guitar and gentle piano instrumental）"
+                className="w-full rounded-lg border border-slate-700/80 bg-[#090d14] px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 resize-y"
+              />
+
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <span>时长(s)</span>
+                  <input
+                    type="number"
+                    min={8}
+                    max={120}
+                    value={bgmDuration}
+                    onChange={(e) => onBgmDurationChange(Number(e.target.value) || 24)}
+                    className="w-12 rounded-md border border-slate-700/80 bg-[#090d14] px-1.5 py-1 text-[11px] tabular-nums text-slate-100 focus:outline-none focus:border-cyan-500"
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <span>BPM</span>
+                  <input
+                    type="number"
+                    min={40}
+                    max={200}
+                    value={bgmBpm}
+                    onChange={(e) => onBgmBpmChange(Number(e.target.value) || 96)}
+                    className="w-12 rounded-md border border-slate-700/80 bg-[#090d14] px-1.5 py-1 text-[11px] tabular-nums text-slate-100 focus:outline-none focus:border-cyan-500"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={onGenerateBgm}
+                  disabled={generatingBgm || !bgmTags.trim() || !bgmWorkflowLoaded}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/45 bg-cyan-600/25 hover:bg-cyan-600/40 disabled:opacity-45 disabled:cursor-not-allowed px-2.5 py-1.5 text-xs font-semibold text-cyan-100 transition-colors cursor-pointer"
+                >
+                  {generatingBgm ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>生成中…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>生成配乐</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

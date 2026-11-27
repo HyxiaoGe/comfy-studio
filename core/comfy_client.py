@@ -151,7 +151,7 @@ def download_outputs(server, entry, out_dir, file_id, media_keys=("images",), ov
     """从 history 条目下载生成的图片或视频文件，返回本地文件路径列表。"""
     os.makedirs(out_dir, exist_ok=True)
     if overwrite:
-        for old_ext in (".mp4", ".webm", ".gif", ".png", ".jpg", ".webp"):
+        for old_ext in (".mp4", ".webm", ".gif", ".png", ".jpg", ".webp", ".mp3", ".flac", ".wav"):
             old_path = os.path.join(out_dir, file_id + old_ext)
             if os.path.exists(old_path):
                 os.remove(old_path)
@@ -173,7 +173,11 @@ def download_outputs(server, entry, out_dir, file_id, media_keys=("images",), ov
                     ),
                 )
                 data = http_get_bytes(url)
-                default_ext = ".mp4" if key in ("videos", "gifs") else ".png"
+                default_ext = (
+                    ".mp3"
+                    if key == "audio"
+                    else (".mp4" if key in ("videos", "gifs") else ".png")
+                )
                 ext = os.path.splitext(filename)[1] or default_ext
                 local = os.path.join(out_dir, file_id + ext)
                 n = 2
