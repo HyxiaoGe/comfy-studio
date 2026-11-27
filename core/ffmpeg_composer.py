@@ -375,7 +375,7 @@ def compose_storyboard_video(
             if tts_path and os.path.isfile(tts_path):
                 tts_dur = probe_audio_duration(tts_path)
                 if auto_align_tts and tts_dur > 0:
-                    pad = 0.55 if idx < len(shots) - 1 else 0.45
+                    pad = (trans + 0.25) if idx < len(shots) - 1 else 0.45
                     dur = max(dur, min(15.0, tts_dur + pad))
             else:
                 tts_path = None
@@ -390,16 +390,27 @@ def compose_storyboard_video(
             render_shot_clip(img_path, clip_path, motion, w, h, dur, fps)
             clip_entries.append((clip_path, dur))
 
-            start_t = cursor + (trans * 0.25 if idx > 0 and trans > 0 else 0.0)
+            start_t = cursor + (trans * 0.55 if idx > 0 and trans > 0 else 0.0)
             if tts_path:
                 tts_events.append((start_t, tts_path))
 
             narr = (shot.get("narration") or "").strip()
             if narr:
-                end_t = cursor + dur - (trans * 0.3 if idx < len(shots) - 1 and trans > 0 else 0.0)
-                sub_entries.append((start_t, max(start_t + 0.3, end_t), narr))
+                if idx < len(shots) - 1:
+                    next_start_t = (cursor + dur - trans) + (trans * 0.55 if trans > 0 else 0.0)
+                    end_t = next_start_t - 0.08
+                else:
+                    end_t = cursor + dur - 0.08
+                sub_entries.append((start_t, max(start_t + 0.25, end_t), narr))
 
             cursor += dur - (trans if idx < len(shots) - 1 and trans > 0 else 0.0)
+
+        # 确保相邻字幕严格不重叠，防止 libass 触发碰撞上抬导致上下跳动
+        for i in range(len(sub_entries) - 1):
+            s_cur, e_cur, txt_cur = sub_entries[i]
+            s_next = sub_entries[i + 1][0]
+            if e_cur > s_next - 0.05:
+                sub_entries[i] = (s_cur, max(s_cur + 0.1, s_next - 0.05), txt_cur)
 
         total_duration = sum(d for _, d in clip_entries)
         if len(clip_entries) > 1 and trans > 0:
