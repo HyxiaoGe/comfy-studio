@@ -21,6 +21,36 @@ function randomSeed() {
   return Math.floor(Math.random() * 2147483647) + 1;
 }
 
+function parseAppRoute(pathname) {
+  const clean = (pathname || '/').replace(/\/+$/, '') || '/';
+  if (clean === '/') return { view: 'home', projectId: null, step: 1 };
+  const m = /^\/projects\/([^/]+)(?:\/step\/([123]))?$/.exec(clean);
+  if (m) {
+    return {
+      view: 'studio',
+      projectId: decodeURIComponent(m[1]),
+      step: m[2] ? Number(m[2]) : null,
+    };
+  }
+  return { view: 'home', projectId: null, step: 1 };
+}
+
+function buildStudioPath(pid, step = 1) {
+  const safeStep = [1, 2, 3].includes(Number(step)) ? Number(step) : 1;
+  if (!pid) return '/';
+  return `/projects/${encodeURIComponent(pid)}/step/${safeStep}`;
+}
+
+function pushBrowserPath(path, replace = false) {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname === path) return;
+  if (replace) {
+    window.history.replaceState(null, '', path);
+  } else {
+    window.history.pushState(null, '', path);
+  }
+}
+
 function loadCustomChips() {
   try {
     const arr = JSON.parse(localStorage.getItem(CUSTOM_CHIPS_KEY) || '[]');
@@ -36,8 +66,15 @@ export default function App() {
   const uidRef = useRef(1);
   const nextUid = useCallback(() => `shot_${uidRef.current++}`, []);
 
-  const [activeView, setActiveView] = useState('home'); // home | studio
-  const [activeStep, setActiveStep] = useState(1); // 1 | 2 | 3
+  const initRouteRef = useRef(null);
+  if (!initRouteRef.current) {
+    initRouteRef.current = parseAppRoute(
+      typeof window !== 'undefined' ? window.location.pathname : '/'
+    );
+  }
+
+  const [activeView, setActiveView] = useState(initRouteRef.current.view); // home | studio
+  const [activeStep, setActiveStep] = useState(initRouteRef.current.step || 1); // 1 | 2 | 3
   const [mode, setMode] = useState('storyboard');
   const [projectId, setProjectId] = useState(null);
   const [title, setTitle] = useState('未命名分镜项目');
@@ -305,10 +342,12 @@ export default function App() {
       setPrefix(nextState.prefix);
       setNegativePrompt(nextState.negativePrompt);
       setShots(nextShots);
-      await saveProjectNow(nextState);
+      const saved = await saveProjectNow(nextState);
+      const nextPid = saved?.id || stateRef.current.projectId;
       fetchLists();
       setActiveView('studio');
       setActiveStep(1);
+      if (nextPid) pushBrowserPath(buildStudioPath(nextPid, 1));
       pushToast(
         `已用 ${data.model || 'DeepSeek'} 生成「${nextState.title}」(${nextShots.length} 镜)`,
         'success'
@@ -435,33 +474,48 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const initRoute = initRouteRef.current;
+
     (async () => {
       let restoredProj = null;
-      try {
-        const r = await fetch('/api/projects/latest');
-        const data = await r.json();
-        if (!cancelled && r.ok && data.project) {
-          restoredProj = data.project;
-          applyProjectRecord(data.project);
-          await restoreCompositionForProject(data.project.id);
+      if (initRoute.view === 'studio' && initRoute.projectId) {
+        try {
+          const r = await fetch(`/api/projects/${encodeURIComponent(initRoute.projectId)}`);
+          const data = await r.json();
+          if (!cancelled && r.ok && data.project) {
+            restoredProj = data.project;
+            applyProjectRecord(data.project);
+            await restoreCompositionForProject(data.project.id);
+            const projShots = data.project.shots || [];
+            const hasContent = projShots.some((s) => (s.prompt || '').trim() || (s.narration || '').trim());
+            const hasReady = projShots.some((s) => Boolean(s.filename));
+            const resolvedStep = initRoute.step || (hasReady || hasContent ? 2 : 1);
+            setActiveView('studio');
+            setActiveStep(resolvedStep);
+            pushBrowserPath(buildStudioPath(data.project.id, resolvedStep), true);
+          } else if (!cancelled) {
+            setActiveView('home');
+            pushBrowserPath('/', true);
+            pushToast('未找到该项目，已返回首页', 'info');
+          }
+        } catch {
+          if (!cancelled) {
+            setActiveView('home');
+            pushBrowserPath('/', true);
+          }
         }
-      } catch {
-        // ignore
-      }
-
-      if (!cancelled && !restoredProj) {
-        const initShots = [buildShot('', 0), buildShot('', 1)];
-        setShots(initShots);
-        await saveProjectNow({
-          projectId: '',
-          title: '未命名分镜项目',
-          mode: 'storyboard',
-          prefix: STYLE_CHIPS[0].prefix,
-          negativePrompt: DEFAULT_NEGATIVE_PROMPT,
-          seed: 42,
-          aspectValue: '1344x768',
-          shots: initShots,
-        });
+      } else {
+        try {
+          const r = await fetch('/api/projects/latest');
+          const data = await r.json();
+          if (!cancelled && r.ok && data.project) {
+            restoredProj = data.project;
+            applyProjectRecord(data.project);
+            await restoreCompositionForProject(data.project.id);
+          }
+        } catch {
+          // ignore
+        }
       }
 
       if (!cancelled) {
@@ -475,6 +529,7 @@ export default function App() {
             if (saved?.job_id && Array.isArray(saved.submittedUids) && saved.project_id === activePid) {
               setActiveView('studio');
               setActiveStep(2);
+              pushBrowserPath(buildStudioPath(activePid, 2), true);
               resumeBatchPolling(saved.job_id, saved.submittedUids);
             } else {
               localStorage.removeItem(ACTIVE_BATCH_KEY);
@@ -885,23 +940,72 @@ export default function App() {
   const ttsCount = shots.filter((s) => Boolean(s.ttsFilename)).length;
 
   const openProjectById = useCallback(
-    async (pid, preferredStep = null) => {
+    async (pid, preferredStep = null, { updateHistory = true } = {}) => {
       const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
       const data = await r.json();
-      if (!r.ok || !data.project) return;
+      if (!r.ok || !data.project) return false;
       applyProjectRecord(data.project);
       await restoreCompositionForProject(data.project.id);
       const projShots = data.project.shots || [];
       const hasAnyContent = projShots.some((s) => (s.prompt || '').trim() || (s.narration || '').trim());
       const hasAnyReady = projShots.some((s) => Boolean(s.filename));
-      const targetStep = preferredStep || (hasAnyReady ? 2 : hasAnyContent ? 2 : 1);
+      const targetStep = preferredStep || (hasAnyReady || hasAnyContent ? 2 : 1);
       setActiveView('studio');
       setActiveStep(targetStep);
       setDrawerOpen(false);
+      if (updateHistory) {
+        pushBrowserPath(buildStudioPath(data.project.id, targetStep));
+      }
       pushToast(`已打开项目：${data.project.title}`, 'info');
+      return true;
     },
     [applyProjectRecord, pushToast, restoreCompositionForProject]
   );
+
+  const navigateHome = useCallback((updateHistory = true) => {
+    setActiveView('home');
+    if (updateHistory) pushBrowserPath('/');
+  }, []);
+
+  const navigateStep = useCallback(
+    async (step) => {
+      const safeStep = [1, 2, 3].includes(Number(step)) ? Number(step) : 1;
+      let pid = stateRef.current.projectId;
+      if (!pid) {
+        const saved = await saveProjectNow();
+        pid = saved?.id || stateRef.current.projectId;
+      }
+      setActiveView('studio');
+      setActiveStep(safeStep);
+      if (pid) pushBrowserPath(buildStudioPath(pid, safeStep));
+    },
+    [saveProjectNow]
+  );
+
+  useEffect(() => {
+    const onPopState = async () => {
+      const route = parseAppRoute(window.location.pathname);
+      if (route.view === 'home') {
+        setActiveView('home');
+        return;
+      }
+      if (route.projectId) {
+        const targetStep = route.step || 1;
+        if (route.projectId === stateRef.current.projectId) {
+          setActiveView('studio');
+          setActiveStep(targetStep);
+        } else {
+          const ok = await openProjectById(route.projectId, targetStep, { updateHistory: false });
+          if (!ok) {
+            setActiveView('home');
+            pushBrowserPath('/', true);
+          }
+        }
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [openProjectById]);
 
   const createBlankProject = useCallback(async () => {
     const blankShots = [buildShot('', 0), buildShot('', 1)];
@@ -921,24 +1025,21 @@ export default function App() {
     setNegativePrompt(nextState.negativePrompt);
     setShots(blankShots);
     setComposeState((prev) => ({ ...prev, visible: false, videoUrl: '' }));
-    await saveProjectNow(nextState);
+    const saved = await saveProjectNow(nextState);
+    const nextPid = saved?.id || stateRef.current.projectId;
     fetchLists();
     setActiveView('studio');
     setActiveStep(1);
+    if (nextPid) pushBrowserPath(buildStudioPath(nextPid, 1));
     setDrawerOpen(false);
     pushToast('已创建空白分镜项目', 'success');
   }, [aspectValue, buildShot, fetchLists, pushToast, saveProjectNow, seed]);
 
   const handlePlayComposition = useCallback(
     async (c) => {
+      let opened = false;
       if (c.project_id) {
-        const exists = historyProjects.some((p) => p.id === c.project_id);
-        if (exists) {
-          await openProjectById(c.project_id, 3);
-        }
-      } else {
-        setActiveView('studio');
-        setActiveStep(3);
+        opened = await openProjectById(c.project_id, 3, { updateHistory: true });
       }
       setComposeState({
         visible: true,
@@ -951,9 +1052,12 @@ export default function App() {
       });
       setActiveView('studio');
       setActiveStep(3);
+      if (!opened && stateRef.current.projectId) {
+        pushBrowserPath(buildStudioPath(stateRef.current.projectId, 3));
+      }
       setDrawerOpen(false);
     },
-    [historyProjects, openProjectById]
+    [openProjectById]
   );
 
   const updateShotPrompt = (uid, val) => {
@@ -1024,9 +1128,9 @@ export default function App() {
     <div className="min-h-screen bg-[#090d14] text-slate-200">
       <TopBar
         activeView={activeView}
-        onGoHome={() => setActiveView('home')}
-        onResumeStudio={() => setActiveView('studio')}
-        hasActiveProject={shots.length > 0}
+        onGoHome={() => navigateHome(true)}
+        onResumeStudio={() => navigateStep(activeStep)}
+        hasActiveProject={Boolean(projectId) && shots.length > 0}
         title={title}
         onTitleChange={(v) => {
           setTitle(v);
@@ -1082,8 +1186,8 @@ export default function App() {
         <>
           <StudioStepper
             activeStep={activeStep}
-            onStepChange={setActiveStep}
-            onGoHome={() => setActiveView('home')}
+            onStepChange={navigateStep}
+            onGoHome={() => navigateHome(true)}
             shotCount={shots.length}
             readyCount={readyCount}
             ttsCount={ttsCount}
@@ -1155,7 +1259,7 @@ export default function App() {
               onMoveShotDown={moveShotDown}
               onDuplicateShot={(idx) => duplicateShot(idx, shots[idx])}
               onDeleteShot={deleteShot}
-              onNextStep={() => setActiveStep(2)}
+              onNextStep={() => navigateStep(2)}
             />
           ) : activeStep === 2 ? (
             <StepTwoProduction
@@ -1189,8 +1293,8 @@ export default function App() {
               onReroll={handleRerollShot}
               onUploadImage={handleUploadShotImage}
               onPreview={setLightboxSrc}
-              onPrevStep={() => setActiveStep(1)}
-              onNextStep={() => setActiveStep(3)}
+              onPrevStep={() => navigateStep(1)}
+              onNextStep={() => navigateStep(3)}
             />
           ) : (
             <StepThreeCompose
@@ -1216,7 +1320,7 @@ export default function App() {
               onCompose={handleCompose}
               onChangeMotion={updateShotMotion}
               onChangeDuration={updateShotDuration}
-              onPrevStep={() => setActiveStep(2)}
+              onPrevStep={() => navigateStep(2)}
             />
           )}
         </>
@@ -1233,7 +1337,10 @@ export default function App() {
         onDeleteProject={async (pid) => {
           const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`, { method: 'DELETE' });
           if (r.ok) {
-            if (pid === projectId) setProjectId(null);
+            if (pid === projectId) {
+              setProjectId(null);
+              if (activeView === 'studio') navigateHome(true);
+            }
             fetchLists();
             pushToast('已删除项目记录', 'info');
           }

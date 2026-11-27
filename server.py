@@ -596,6 +596,13 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif self._serve_frontend_asset(path):
             return
+        elif (
+            not path.startswith(("/api/", "/assets/", "/results/", "/tts/", "/audio/", "/composed/"))
+            and "." not in os.path.basename(path)
+        ):
+            dist_index = os.path.join(WEB_DIST_DIR, "index.html")
+            target = dist_index if os.path.isfile(dist_index) else WEB_INDEX_PATH
+            self._file(target, "text/html; charset=utf-8")
         else:
             self._json({"error": "没有这个地址"}, 404)
 

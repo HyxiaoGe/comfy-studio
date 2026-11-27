@@ -13,6 +13,8 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:8899',
       '/results': 'http://127.0.0.1:8899',
       '/composed': 'http://127.0.0.1:8899',
+      '/tts': 'http://127.0.0.1:8899',
+      '/audio': 'http://127.0.0.1:8899',
     },
   },
 })
