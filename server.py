@@ -181,15 +181,18 @@ def new_job(
     width=DEFAULT_WIDTH,
     height=DEFAULT_HEIGHT,
     project_id="",
+    shot_uids=None,
 ):
     job_id = uuid.uuid4().hex[:12]
     full_prompts = [merge_prompt(prefix, p) for p in prompts]
     w, h = _normalize_size(width, height)
+    clean_uids = [u if isinstance(u, str) else "" for u in (shot_uids or [])]
     job = {
         "id": job_id,
         "project_id": project_id or "",
         "mode": "image",
         "prompts": full_prompts,
+        "shot_uids": clean_uids,
         "negative_prompt": negative_prompt,
         "seed": seed,
         "width": w,
@@ -216,17 +219,24 @@ def new_video_job(
     width=DEFAULT_WIDTH,
     height=DEFAULT_HEIGHT,
     project_id="",
+    shot_uids=None,
 ):
     job_id = uuid.uuid4().hex[:12]
     w, h = _normalize_size(width, height)
     norm_shots = []
-    for s in shots:
+    uids = []
+    for idx, s in enumerate(shots):
         p = merge_prompt(prefix, s.get("prompt") or "")
         try:
             dur = max(3.0, min(10.0, float(s.get("duration") or 5.0)))
         except (TypeError, ValueError):
             dur = 5.0
+        uid = s.get("uid") if isinstance(s.get("uid"), str) else (
+            shot_uids[idx] if shot_uids and idx < len(shot_uids) and isinstance(shot_uids[idx], str) else ""
+        )
+        uids.append(uid)
         norm_shots.append({
+            "uid": uid,
             "prompt": p,
             "duration": dur,
             "first_frame_filename": s.get("first_frame_filename") or "",
@@ -236,6 +246,7 @@ def new_video_job(
         "project_id": project_id or "",
         "mode": "video",
         "prompts": [s["prompt"] for s in norm_shots],
+        "shot_uids": uids,
         "video_shots": norm_shots,
         "negative_prompt": "",
         "seed": seed,
@@ -430,11 +441,12 @@ def run_job(job_id):
                 overwrite=True,
             )
             with jobs_lock:
+                latest_item = None
                 for p in saved:
                     fname = os.path.basename(p)
                     info = probe_media_info(p)
                     job["results"].append(fname)
-                    job["items"].append({
+                    latest_item = {
                         "filename": fname,
                         "url": f"/videos/{fname}",
                         "path": os.path.abspath(p),
@@ -445,11 +457,30 @@ def run_job(job_id):
                         "seed": clip_seed,
                         "width": job["width"],
                         "height": job["height"],
-                    })
+                    }
+                    job["items"].append(latest_item)
                 job["done"] = i + 1
                 results_copy = list(job["results"])
                 items_copy = list(job["items"])
             st.update_job(job_id, done=i + 1, results=results_copy, items=items_copy)
+            shot_uid = vshot.get("uid") or (
+                (job.get("shot_uids") or [])[i] if i < len(job.get("shot_uids") or []) else ""
+            )
+            if job.get("project_id") and shot_uid and latest_item:
+                st.patch_project_shot(
+                    job["project_id"],
+                    shot_uid,
+                    {
+                        "videoFilename": latest_item["filename"],
+                        "videoDuration": latest_item["duration"],
+                        "videoHasAudio": latest_item["has_audio"],
+                        "videoSeed": latest_item["seed"],
+                        "videoMode": latest_item["mode"],
+                        "useVideo": True,
+                        "videoStatus": "ready",
+                        "videoError": "",
+                    },
+                )
 
         with jobs_lock:
             job["status"] = "done"
@@ -482,21 +513,35 @@ def run_job(job_id):
             COMFYUI, entry, OUT_DIR, image_id, media_keys=("images",), overwrite=True
         )
         with jobs_lock:
+            latest_item = None
             for p in saved:
                 fname = os.path.basename(p)
                 job["results"].append(fname)
-                job["items"].append({
+                latest_item = {
                     "filename": fname,
                     "path": os.path.abspath(p),
                     "prompt": prompt,
                     "seed": job["seed"],
                     "width": job["width"],
                     "height": job["height"],
-                })
+                }
+                job["items"].append(latest_item)
             job["done"] = i + 1
             results_copy = list(job["results"])
             items_copy = list(job["items"])
         st.update_job(job_id, done=i + 1, results=results_copy, items=items_copy)
+        shot_uid = (job.get("shot_uids") or [])[i] if i < len(job.get("shot_uids") or []) else ""
+        if job.get("project_id") and shot_uid and latest_item:
+            st.patch_project_shot(
+                job["project_id"],
+                shot_uid,
+                {
+                    "filename": latest_item["filename"],
+                    "seed": latest_item["seed"],
+                    "status": "ready",
+                    "error": "",
+                },
+            )
 
     with jobs_lock:
         job["status"] = "done"
@@ -1087,6 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
             seed = DEFAULT_SEED
         prefix = data.get("prefix") if isinstance(data.get("prefix"), str) else ""
         project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
+        raw_uids = data.get("shot_uids") if isinstance(data.get("shot_uids"), list) else []
         job = new_job(
             prompts,
             data.get("negative_prompt") or "",
@@ -1095,6 +1141,7 @@ class Handler(BaseHTTPRequestHandler):
             width=data.get("width"),
             height=data.get("height"),
             project_id=project_id,
+            shot_uids=raw_uids,
         )
         self._json({"job_id": job["id"]}, 202)
 
@@ -1134,6 +1181,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": f"找不到参考首帧图：{ff}"}, 404)
                     return
             cleaned_shots.append({
+                "uid": item.get("uid") if isinstance(item.get("uid"), str) else "",
                 "prompt": prompt or "gentle natural motion, subtle ambient sound, cinematic",
                 "duration": item.get("duration") or 5.0,
                 "first_frame_filename": ff,
@@ -1144,6 +1192,7 @@ class Handler(BaseHTTPRequestHandler):
             seed = DEFAULT_SEED
         prefix = data.get("prefix") if isinstance(data.get("prefix"), str) else ""
         project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
+        raw_uids = data.get("shot_uids") if isinstance(data.get("shot_uids"), list) else []
         job = new_video_job(
             cleaned_shots,
             seed=seed,
@@ -1151,6 +1200,7 @@ class Handler(BaseHTTPRequestHandler):
             width=data.get("width"),
             height=data.get("height"),
             project_id=project_id,
+            shot_uids=raw_uids,
         )
         self._json({"job_id": job["id"]}, 202)
 

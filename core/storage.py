@@ -101,6 +101,14 @@ class StudioStorage:
             CREATE INDEX IF NOT EXISTS idx_comp_created ON compositions(created_at DESC);
             """
         )
+        cols = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        if "shot_uids_json" not in cols:
+            self._conn.execute(
+                "ALTER TABLE jobs ADD COLUMN shot_uids_json TEXT NOT NULL DEFAULT '[]'"
+            )
         self._conn.commit()
 
     def close(self):
@@ -256,12 +264,48 @@ class StudioStorage:
             self._conn.commit()
             return cur.rowcount > 0
 
+    def patch_project_shot(self, pid, shot_uid, fields):
+        """在服务端线程安全地回写单个分镜的生成产物，避免浏览器刷新或后台断开导致进度丢失。"""
+        if not pid or not shot_uid or not isinstance(fields, dict):
+            return False
+        now = time.time()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT shots_json FROM projects WHERE id = ?", (pid,)
+            ).fetchone()
+            if row is None:
+                return False
+            shots = _json_loads(row["shots_json"], [])
+            if not isinstance(shots, list):
+                return False
+            updated = False
+            for idx, s in enumerate(shots):
+                if isinstance(s, dict) and s.get("uid") == shot_uid:
+                    next_s = dict(s)
+                    if fields.get("filename") and fields.get("filename") != s.get("filename"):
+                        next_s["imgVer"] = int(s.get("imgVer") or 0) + 1
+                    if fields.get("videoFilename") and fields.get("videoFilename") != s.get("videoFilename"):
+                        next_s["videoVer"] = int(s.get("videoVer") or 0) + 1
+                    next_s.update(fields)
+                    shots[idx] = next_s
+                    updated = True
+                    break
+            if not updated:
+                return False
+            self._conn.execute(
+                "UPDATE projects SET shots_json = ?, updated_at = ? WHERE id = ?",
+                (_json_dumps(shots), now, pid),
+            )
+            self._conn.commit()
+            return True
+
     # -------------------- Jobs --------------------
 
     @staticmethod
     def _row_to_job(row):
         if row is None:
             return None
+        keys = row.keys()
         return {
             "id": row["id"],
             "project_id": row["project_id"],
@@ -275,6 +319,7 @@ class StudioStorage:
             "seed": row["seed"],
             "negative_prompt": row["negative_prompt"],
             "prompts": _json_loads(row["prompts_json"], []),
+            "shot_uids": _json_loads(row["shot_uids_json"], []) if "shot_uids_json" in keys else [],
             "results": _json_loads(row["results_json"], []),
             "items": _json_loads(row["items_json"], []),
             "error": row["error"],
@@ -290,8 +335,8 @@ class StudioStorage:
                 INSERT INTO jobs (
                     id, project_id, mode, status, done, total, current_index,
                     width, height, seed, negative_prompt, prompts_json,
-                    results_json, items_json, error, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    shot_uids_json, results_json, items_json, error, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job["id"],
@@ -306,6 +351,7 @@ class StudioStorage:
                     job.get("seed", 42),
                     job.get("negative_prompt") or "",
                     _json_dumps(job.get("prompts") or []),
+                    _json_dumps(job.get("shot_uids") or []),
                     _json_dumps(job.get("results") or []),
                     _json_dumps(job.get("items") or []),
                     job.get("error") or "",

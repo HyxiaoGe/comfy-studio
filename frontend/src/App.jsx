@@ -470,15 +470,15 @@ export default function App() {
           if (!sr.ok) throw new Error(sj.error || `HTTP ${sr.status}`);
 
           const isVid = (sj.mode || jobType) === 'video';
-          let anyChanged = false;
-          setShots((prev) =>
-            prev.map((card) => {
+          const applyJobToList = (list) => {
+            let changed = false;
+            const nextList = list.map((card) => {
               const idx = submittedUids.indexOf(card.uid);
               if (idx === -1) return card;
               const item = (sj.items || [])[idx];
               if (isVid) {
                 if (item && card.videoFilename !== item.filename) {
-                  anyChanged = true;
+                  changed = true;
                   return {
                     ...card,
                     videoFilename: item.filename,
@@ -499,14 +499,14 @@ export default function App() {
                   return { ...card, videoStatus: 'queued', videoError: '' };
                 }
                 if ((sj.status === 'failed' || sj.status === 'interrupted') && !item) {
-                  anyChanged = true;
+                  changed = true;
                   return { ...card, videoStatus: 'error', videoError: sj.error || '视频生成中断或失败' };
                 }
                 return card;
               }
 
               if (item && card.filename !== item.filename) {
-                anyChanged = true;
+                changed = true;
                 return {
                   ...card,
                   filename: item.filename,
@@ -523,12 +523,22 @@ export default function App() {
                 return { ...card, status: 'queued', error: '' };
               }
               if ((sj.status === 'failed' || sj.status === 'interrupted') && !card.filename) {
-                anyChanged = true;
+                changed = true;
                 return { ...card, status: 'error', error: sj.error || '生成中断或失败' };
               }
               return card;
-            })
+            });
+            return { nextList, changed };
+          };
+
+          const { nextList: syncedShots, changed: syncChanged } = applyJobToList(
+            stateRef.current.shots || []
           );
+          let anyChanged = syncChanged;
+          if (syncChanged) {
+            stateRef.current = { ...stateRef.current, shots: syncedShots };
+          }
+          setShots((prev) => applyJobToList(prev).nextList);
 
           const unitLabel = isVid ? '段视频' : '镜';
           if (sj.status === 'running') {
@@ -559,7 +569,7 @@ export default function App() {
           }
 
           if (anyChanged) {
-            setTimeout(() => saveProjectNow(), 50);
+            await saveProjectNow({ ...stateRef.current, shots: syncedShots });
           }
         } catch {
           clearInterval(batchTimerRef.current);
@@ -935,6 +945,7 @@ export default function App() {
         body: JSON.stringify({
           project_id: pid,
           prompts: activeShots.map((s) => s.prompt.trim()),
+          shot_uids: submittedUids,
           prefix: prefix.trim(),
           negative_prompt: negativePrompt,
           seed: nextSeed,
@@ -1002,6 +1013,7 @@ export default function App() {
           width: aspect.width,
           height: aspect.height,
           shots: activeShots.map((s) => ({
+            uid: s.uid,
             prompt: s.prompt.trim(),
             duration: Math.max(3, Math.min(10, Number(s.duration) || 5)),
             first_frame_filename: s.filename || '',
@@ -1090,6 +1102,7 @@ export default function App() {
         body: JSON.stringify({
           project_id: pid || '',
           prompts: [prompt],
+          shot_uids: [uid],
           prefix: prefix.trim(),
           negative_prompt: negativePrompt,
           seed: nextSeed,
@@ -1195,6 +1208,7 @@ export default function App() {
           height: aspect.height,
           shots: [
             {
+              uid,
               prompt,
               duration: Math.max(3, Math.min(10, Number(target.duration) || 5)),
               first_frame_filename: ff,
