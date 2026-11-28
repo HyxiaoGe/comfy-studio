@@ -71,6 +71,8 @@ export default function StepThreeCompose({
   onBurnSubtitlesChange,
   autoAlignTts,
   onAutoAlignTtsChange,
+  keepVideoAudio,
+  onKeepVideoAudioChange,
   audioFiles,
   bgmFilename,
   onBgmFilenameChange,
@@ -145,14 +147,21 @@ export default function StepThreeCompose({
     })),
   ];
 
+  const isShotVideo = (s) => Boolean(s.videoFilename && (s.useVideo !== false || !s.filename));
+  const videoShotCount = shots.filter(isShotVideo).length;
+  const hasVideoAudio = shots.some((s) => isShotVideo(s) && s.videoHasAudio);
+
   const narrCount = shots.filter((s) => (s.narration || '').trim().length > 0).length;
   const missingTts = narrCount > 0 && ttsCount < narrCount;
-  const silentWarning = ttsCount === 0 && !bgmFilename;
+  const silentWarning = ttsCount === 0 && !bgmFilename && !(keepVideoAudio && hasVideoAudio);
 
   const estDuration = shots
-    .filter((s) => Boolean(s.filename))
+    .filter((s) => Boolean(s.filename || s.videoFilename))
     .reduce((acc, s) => {
-      const base = Number(s.duration) || 4;
+      const usingVid = isShotVideo(s);
+      const base = usingVid
+        ? Math.max(Number(s.duration) || 5, Number(s.videoDuration) || 0)
+        : Number(s.duration) || 4;
       const d = autoAlignTts && s.ttsDuration > 0 ? Math.max(base, Math.ceil(s.ttsDuration * 10) / 10) : base;
       return acc + d;
     }, 0);
@@ -171,8 +180,9 @@ export default function StepThreeCompose({
             <div>
               <h2 className="text-base font-bold text-slate-100">准备合成最终短片</h2>
               <p className="text-xs text-slate-400 mt-1">
-                当前共有 {readyCount}/{shots.length} 镜已出图，{ttsCount}/{shots.length} 条旁白已配音，预计成片约{' '}
-                {estDuration.toFixed(1)}s（{aspect.width}×{aspect.height}）。确认右侧后期参数后点击「一键合成成片」。
+                当前共有 {readyCount}/{shots.length} 镜已就绪
+                {videoShotCount > 0 ? `（含 ${videoShotCount} 段 AI 视频）` : ''}，{ttsCount}/{shots.length}{' '}
+                条旁白已配音，预计成片约 {estDuration.toFixed(1)}s（{aspect.width}×{aspect.height}）。确认右侧后期参数后点击「一键合成 MP4」。
               </p>
             </div>
           </div>
@@ -193,63 +203,91 @@ export default function StepThreeCompose({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {shots.map((shot, idx) => (
-              <div
-                key={shot.uid}
-                className="rounded-xl border border-slate-800 bg-[#0c121e] p-2.5 flex flex-col gap-2"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-20 aspect-video rounded-lg bg-[#090d14] border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
-                    {shot.filename ? (
-                      <img
-                        src={`/results/${encodeURIComponent(shot.filename)}?v=${shot.imgVer || 1}`}
-                        alt={`#${idx + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <ImageIcon className="w-4 h-4 text-slate-600" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-mono font-bold text-blue-300">
-                        #{String(idx + 1).padStart(2, '0')}
-                      </span>
-                      {shot.ttsFilename ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.2 text-[10px] text-cyan-200 tabular-nums">
-                          <Volume2 className="w-2.5 h-2.5" />
-                          {shot.ttsDuration}s
+            {shots.map((shot, idx) => {
+              const usingVid = isShotVideo(shot);
+              return (
+                <div
+                  key={shot.uid}
+                  className="rounded-xl border border-slate-800 bg-[#0c121e] p-2.5 flex flex-col gap-2"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative w-20 aspect-video rounded-lg bg-[#090d14] border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
+                      {usingVid ? (
+                        <video
+                          src={`/videos/${encodeURIComponent(shot.videoFilename)}?v=${shot.videoVer || 1}`}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : shot.filename ? (
+                        <img
+                          src={`/results/${encodeURIComponent(shot.filename)}?v=${shot.imgVer || 1}`}
+                          alt={`#${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="w-4 h-4 text-slate-600" />
+                      )}
+                      {usingVid ? (
+                        <span className="absolute bottom-0.5 right-0.5 rounded bg-indigo-950/90 border border-indigo-400/40 px-1 text-[9px] font-semibold text-indigo-200">
+                          H3
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-xs text-slate-300 line-clamp-2 mt-1 leading-snug">
-                      {shot.narration?.trim() || shot.prompt || '未填写描述'}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-mono font-bold text-blue-300">
+                          #{String(idx + 1).padStart(2, '0')}
+                        </span>
+                        {usingVid ? (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.2 text-[10px] text-indigo-200 tabular-nums">
+                            AI 视频{shot.videoHasAudio ? ' · 原生音' : ''}
+                          </span>
+                        ) : null}
+                        {shot.ttsFilename ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.2 text-[10px] text-cyan-200 tabular-nums">
+                            <Volume2 className="w-2.5 h-2.5" />
+                            {shot.ttsDuration}s
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-slate-300 line-clamp-2 mt-1 leading-snug">
+                        {shot.narration?.trim() || shot.prompt || '未填写描述'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 flex-wrap pt-1.5 border-t border-slate-800/80">
+                    {usingVid ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-indigo-300 font-medium">
+                        <Film className="w-3 h-3 text-indigo-400" />
+                        <span>AI 原生动态 ({shot.videoDuration || shot.duration}s)</span>
+                      </span>
+                    ) : (
+                      <SelectDropdown
+                        size="sm"
+                        className="flex-1 min-w-[115px]"
+                        value={shot.motion}
+                        onChange={(val) => onChangeMotion(shot.uid, val)}
+                        options={MOTION_OPTIONS}
+                        renderIcon={(opt) => {
+                          const IconComp = MOTION_ICONS[opt.icon];
+                          return IconComp ? <IconComp className="w-3 h-3 text-cyan-400 shrink-0" /> : null;
+                        }}
+                      />
+                    )}
+                    <SegmentedControl
+                      size="xs"
+                      variant="subtle"
+                      value={shot.duration}
+                      onChange={(val) => onChangeDuration(shot.uid, val)}
+                      options={DURATION_OPTIONS}
+                    />
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between gap-2 flex-wrap pt-1.5 border-t border-slate-800/80">
-                  <SelectDropdown
-                    size="sm"
-                    className="flex-1 min-w-[115px]"
-                    value={shot.motion}
-                    onChange={(val) => onChangeMotion(shot.uid, val)}
-                    options={MOTION_OPTIONS}
-                    renderIcon={(opt) => {
-                      const IconComp = MOTION_ICONS[opt.icon];
-                      return IconComp ? <IconComp className="w-3 h-3 text-cyan-400 shrink-0" /> : null;
-                    }}
-                  />
-                  <SegmentedControl
-                    size="xs"
-                    variant="subtle"
-                    value={shot.duration}
-                    onChange={(val) => onChangeDuration(shot.uid, val)}
-                    options={DURATION_OPTIONS}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -272,6 +310,15 @@ export default function StepThreeCompose({
             label="按配音时长自动对齐镜长"
             description="语音较长时自动延长画面秒数"
           />
+
+          {videoShotCount > 0 ? (
+            <ToggleSwitch
+              checked={keepVideoAudio}
+              onChange={onKeepVideoAudioChange}
+              label="保留 AI 视频原生环境音"
+              description="有旁白时自动压低背景音效，避免遮挡人声"
+            />
+          ) : null}
 
           <div>
             <div className="text-[11px] font-medium text-slate-400 mb-1.5">镜头转场效果</div>

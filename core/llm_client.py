@@ -166,8 +166,9 @@ MIN_STORYBOARD_DURATION = 10
 MAX_STORYBOARD_DURATION = 300
 
 
-def plan_storyboard_scope(shot_count=6, target_duration=0):
+def plan_storyboard_scope(shot_count=6, target_duration=0, mode="storyboard"):
     """根据目标总时长或目标镜头数，规划最终镜头数与建议单镜秒数（严格限制在安全范围内）。"""
+    is_video = (mode or "storyboard").strip().lower() == "video"
     try:
         raw_dur = float(target_duration or 0)
     except (TypeError, ValueError):
@@ -178,6 +179,11 @@ def plan_storyboard_scope(shot_count=6, target_duration=0):
             MIN_STORYBOARD_DURATION,
             min(MAX_STORYBOARD_DURATION, int(round(raw_dur))),
         )
+        if is_video:
+            avg = 5 if target_dur <= 90 else (6 if target_dur <= 180 else 8)
+            count = max(MIN_STORYBOARD_SHOTS, min(MAX_STORYBOARD_SHOTS, int(round(target_dur / avg))))
+            per_shot = max(4, min(8, int(round(target_dur / count))))
+            return count, target_dur, per_shot
         if target_dur <= 24:
             avg = 4
         elif target_dur <= 48:
@@ -199,7 +205,7 @@ def plan_storyboard_scope(shot_count=6, target_duration=0):
     except (TypeError, ValueError):
         raw_cnt = 6
     count = max(MIN_STORYBOARD_SHOTS, min(MAX_STORYBOARD_SHOTS, raw_cnt))
-    return count, 0, 4
+    return count, 0, 5 if is_video else 4
 
 
 def generate_storyboard(
@@ -208,6 +214,7 @@ def generate_storyboard(
     target_duration=0,
     visual_style="",
     narration_style="绘本故事",
+    mode="storyboard",
     timeout=120,
 ):
     """
@@ -223,40 +230,68 @@ def generate_storyboard(
     if not clean_idea:
         raise ValueError("请输入故事创意或主题描述")
 
-    count, target_dur, per_shot = plan_storyboard_scope(shot_count, target_duration)
+    norm_mode = "video" if (mode or "storyboard").strip().lower() == "video" else "storyboard"
+    count, target_dur, per_shot = plan_storyboard_scope(shot_count, target_duration, mode=norm_mode)
     style_hint = (visual_style or "").strip()
 
     narration_len_hint = (
         f"每镜约 {max(12, min(42, per_shot * 3))} 个汉字左右，贴合约 {per_shot} 秒阅读节奏"
         if target_dur > 0
-        else "10~26个汉字，贴合3~5秒阅读节奏"
+        else ("12~28个汉字，贴合5秒视频节奏" if norm_mode == "video" else "10~26个汉字，贴合3~5秒阅读节奏")
     )
 
-    system_msg = (
-        "你是一位兼具 SDXL AI 绘画导演与中文短视频编剧能力的分镜总监。\n"
-        "请根据用户的创意主题，设计一套结构完整、主角与画风高度一致的短视频分镜剧本，并严格以 JSON 对象返回。\n"
-        "输出格式：\n"
-        "{\n"
-        '  "title": "简短吸引人的中文项目标题（4~12字）",\n'
-        '  "prefix": "英文公共画风与主角设定前缀，用于锁死全片画风、色调与主角外貌特征，末尾带 no text",\n'
-        '  "negative_prompt": "英文通用负提示词（包含 blurry, low quality, text, watermark 等）",\n'
-        '  "shots": [\n'
-        "    {\n"
-        '      "prompt": "英文单镜画面描述（包含景别如 wide shot/close-up/low angle、动作、构图、光线与环境细节，不要重复 prefix 里的完整画风描述）",\n'
-        f'      "narration": "对应的中文口语化旁白解说词（{narration_len_hint}，不要出现第几镜或括号舞台提示）",\n'
-        '      "motion": "zoom_in | zoom_out | pan_left | pan_right | static",\n'
-        f'      "duration": {per_shot}\n'
-        "    }\n"
-        "  ]\n"
-        "}\n"
-        "要求：\n"
-        f"1. shots 数组长度必须严格等于 {count}；\n"
-        "2. 镜头景别与运镜要交替有节奏（开场全景定调 → 中景/特写推进 → 动作转折 → 温暖或升华收尾），避免单调重复；\n"
-        "3. prefix 与每镜 prompt 必须使用英文（SDXL 对英文描述理解最稳定），title 与 narration 必须使用自然流畅的简体中文；\n"
-        "4. duration 为 3 到 12 之间的整数秒数；motion 只能从 zoom_in、zoom_out、pan_left、pan_right、static 中选择；\n"
-        "5. 严禁把任何无关旧角色或无关动物硬塞进新故事！如果下方画风参考中包含与当前创意主题无关的角色设定，必须彻底忽略旧角色，只保留绘画媒介与色调风格，主角完全按本次创意主题设计；\n"
-        "6. 只输出严格合法的 JSON 对象，不要输出任何额外说明文字。"
-    )
+    if norm_mode == "video":
+        system_msg = (
+            "你是一位精通 MiniMax H3 音画视频生成与中文短视频编剧的 AI 导演。\n"
+            "请根据用户的创意主题，设计一套适合直接生成 5 秒连贯动态视频（带画面运动、镜头语言与自然环境音）的剧本，并严格以 JSON 对象返回。\n"
+            "输出格式：\n"
+            "{\n"
+            '  "title": "简短吸引人的中文项目标题（4~12字）",\n'
+            '  "prefix": "英文全片视觉基调与主角外观设定（例如 Cinematic live-action 35mm look 或 Stylized 3D/anime motion style、光线色调、主角特征），末尾带 no text, no watermark",\n'
+            '  "negative_prompt": "英文通用负提示词（包含 blurry, flickering, morphing, extra limbs, text, watermark 等）",\n'
+            '  "shots": [\n'
+            "    {\n"
+            '      "prompt": "英文动态视频镜头描述：包含景别(wide shot/close-up)、连续物理动作(subject motion)、镜头推拉平移(Camera: slow push-in / tracking)、以及自然环境音(Audio: ...)；不要重复 prefix 里的完整风格描述",\n'
+            f'      "narration": "对应的中文口语化旁白解说词（{narration_len_hint}，不要出现第几镜或括号舞台提示）",\n'
+            '      "motion": "zoom_in | zoom_out | pan_left | pan_right | static",\n'
+            f'      "duration": {per_shot}\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "要求：\n"
+            f"1. shots 数组长度必须严格等于 {count}；\n"
+            "2. 镜头景别与动作必须具有时间连续感（例如人物/动物动作起止自然、光线延续、Camera 运镜平稳，避免瞬间切换多个无关场景）；\n"
+            "3. prefix 与每镜 prompt 必须使用英文（MiniMax H3 对英文动态动作与 Audio 音效词响应最佳），每镜建议包含一句简洁的 Audio: 环境音效描述；title 与 narration 使用自然简体中文；\n"
+            "4. duration 为 4 到 8 之间的整数秒数（默认推荐 5 秒）；motion 从 zoom_in、zoom_out、pan_left、pan_right、static 中选择；\n"
+            "5. 严禁把无关旧角色或无关动物硬塞进新故事；如果参考画风里带有旧动物/旧角色名，必须彻底丢弃旧角色只保留视觉质感；\n"
+            "6. 只输出严格合法的 JSON 对象，不要输出任何额外说明文字。"
+        )
+    else:
+        system_msg = (
+            "你是一位兼具 SDXL AI 绘画导演与中文短视频编剧能力的分镜总监。\n"
+            "请根据用户的创意主题，设计一套结构完整、主角与画风高度一致的短视频分镜剧本，并严格以 JSON 对象返回。\n"
+            "输出格式：\n"
+            "{\n"
+            '  "title": "简短吸引人的中文项目标题（4~12字）",\n'
+            '  "prefix": "英文公共画风与主角设定前缀，用于锁死全片画风、色调与主角外貌特征，末尾带 no text",\n'
+            '  "negative_prompt": "英文通用负提示词（包含 blurry, low quality, text, watermark 等）",\n'
+            '  "shots": [\n'
+            "    {\n"
+            '      "prompt": "英文单镜画面描述（包含景别如 wide shot/close-up/low angle、动作、构图、光线与环境细节，不要重复 prefix 里的完整画风描述）",\n'
+            f'      "narration": "对应的中文口语化旁白解说词（{narration_len_hint}，不要出现第几镜或括号舞台提示）",\n'
+            '      "motion": "zoom_in | zoom_out | pan_left | pan_right | static",\n'
+            f'      "duration": {per_shot}\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "要求：\n"
+            f"1. shots 数组长度必须严格等于 {count}；\n"
+            "2. 镜头景别与运镜要交替有节奏（开场全景定调 → 中景/特写推进 → 动作转折 → 温暖或升华收尾），避免单调重复；\n"
+            "3. prefix 与每镜 prompt 必须使用英文（SDXL 对英文描述理解最稳定），title 与 narration 必须使用自然流畅的简体中文；\n"
+            "4. duration 为 3 到 12 之间的整数秒数；motion 只能从 zoom_in、zoom_out、pan_left、pan_right、static 中选择；\n"
+            "5. 严禁把任何无关旧角色或无关动物硬塞进新故事！如果下方画风参考中包含与当前创意主题无关的角色设定，必须彻底忽略旧角色，只保留绘画媒介与色调风格，主角完全按本次创意主题设计；\n"
+            "6. 只输出严格合法的 JSON 对象，不要输出任何额外说明文字。"
+        )
 
     scope_line = (
         f"目标成片总时长：约 {target_dur} 秒（请编排 {count} 个分镜，使每镜约 {per_shot} 秒、所有镜头总时长接近 {target_dur} 秒）\n"

@@ -54,6 +54,9 @@ export default function StepTwoProduction({
   onPrevStep,
   onNextStep,
   onBlockedNextStep,
+  videoWorkflowLoaded = false,
+  onGenerateVideoSingle,
+  onToggleUseVideo,
 }) {
   const [highlightPrimary, setHighlightPrimary] = useState(false);
   const highlightTimerRef = useRef(null);
@@ -64,38 +67,47 @@ export default function StepTwoProduction({
     };
   }, []);
 
+  const isVideoMode = mode === 'video';
   const promptShots = shots.filter((s) => (s.prompt || '').trim().length > 0);
   const narrShots = shots.filter((s) => (s.narration || '').trim().length > 0);
   const missingTtsCount = narrShots.filter((s) => !s.ttsFilename).length;
-  const missingImageCount = promptShots.filter((s) => !s.filename).length;
-  const allReady = shots.length > 0 && missingImageCount === 0 && (missingTtsCount === 0 || !ttsConfigured);
+  const isShotMediaReady = (s) => (isVideoMode ? Boolean(s.videoFilename) : Boolean(s.filename || s.videoFilename));
+  const missingMediaCount = promptShots.filter((s) => !isShotMediaReady(s)).length;
+  const videoReadyCount = shots.filter((s) => Boolean(s.videoFilename)).length;
+  const allReady = shots.length > 0 && missingMediaCount === 0 && (missingTtsCount === 0 || !ttsConfigured);
   const isProducing = generatingTts || batchRunning;
   const nextBlocked = readyCount === 0;
   const providerLabel = ttsProvider === 'doubao' ? '豆包' : '百炼';
 
   const primaryDisabled =
-    mode !== 'storyboard' || isProducing || (promptShots.length === 0 && narrShots.length === 0);
+    isProducing ||
+    (promptShots.length === 0 && narrShots.length === 0) ||
+    (isVideoMode && !videoWorkflowLoaded);
 
-  let primaryLabel = narrShots.length > 0 && ttsConfigured ? '一键生成配音与分镜图' : '批量生成分镜图';
+  const defaultVerb = isVideoMode ? '动态视频' : '分镜图';
+  let primaryLabel =
+    narrShots.length > 0 && ttsConfigured
+      ? `一键生成配音与${defaultVerb}`
+      : `批量生成${defaultVerb}`;
   let primaryTitle = ttsConfigured
-    ? `自动使用${providerLabel}补全缺失配音，并生成分镜图`
-    : '未配置 TTS Key，将直接生成分镜图';
+    ? `自动使用${providerLabel}补全缺失配音，并生成${defaultVerb}`
+    : `未配置 TTS Key，将直接生成${defaultVerb}`;
   let primaryHandler = onProduceMissing;
 
   if (generatingTts) {
     primaryLabel = '正在合成配音…';
   } else if (batchRunning) {
-    primaryLabel = `${gpuProgress?.text || '正在绘制分镜图'} (${readyCount}/${shots.length})`;
-  } else if (missingImageCount > 0 && readyCount > 0) {
+    primaryLabel = `${gpuProgress?.text || (isVideoMode ? '正在生成 AI 视频' : '正在绘制分镜图')} (${readyCount}/${shots.length})`;
+  } else if (missingMediaCount > 0 && readyCount > 0) {
     primaryLabel =
       missingTtsCount > 0 && ttsConfigured
-        ? `补全配音与缺图 (${missingImageCount} 镜)`
-        : `一键补全缺图 (${missingImageCount} 镜)`;
-    primaryTitle = '仅生成缺失配音与尚未出图的镜头，不重画已有图片';
+        ? `补全配音与缺${isVideoMode ? '视频' : '图'} (${missingMediaCount} 镜)`
+        : `一键补全缺${isVideoMode ? '视频' : '图'} (${missingMediaCount} 镜)`;
+    primaryTitle = `仅生成缺失配音与尚未完成${defaultVerb}的镜头，不覆盖已有成果`;
     primaryHandler = onProduceMissing;
-  } else if (missingImageCount === 0 && promptShots.length > 0 && missingTtsCount > 0 && ttsConfigured) {
+  } else if (missingMediaCount === 0 && promptShots.length > 0 && missingTtsCount > 0 && ttsConfigured) {
     primaryLabel = `一键补全缺失配音 (${missingTtsCount} 条)`;
-    primaryTitle = `分镜图已全部就绪，补全剩余 ${missingTtsCount} 条旁白配音`;
+    primaryTitle = `${defaultVerb}已全部就绪，补全剩余 ${missingTtsCount} 条旁白配音`;
     primaryHandler = onGenerateTtsMissing;
   }
 
@@ -105,7 +117,7 @@ export default function StepTwoProduction({
       return;
     }
     const msg = isProducing
-      ? '正在生成配音与分镜图，请等待至少 1 镜完成后再进入下一步'
+      ? `正在生成配音与${defaultVerb}，请等待至少 1 镜完成后再进入下一步`
       : `请先点击左侧「${primaryLabel}」，至少生成 1 镜后再进入下一步`;
     onBlockedNextStep?.(msg);
     setHighlightPrimary(true);
@@ -141,17 +153,17 @@ export default function StepTwoProduction({
               <div className="flex items-center gap-1.5">
                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/35 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-200">
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>配音与分镜图已就绪</span>
+                  <span>{isVideoMode ? '配音与动态视频已就绪' : '配音与分镜图已就绪'}</span>
                 </span>
                 <button
                   type="button"
                   onClick={onProduceAll}
                   disabled={primaryDisabled}
-                  title="重新按当前画风与音色全量重绘所有分镜图"
+                  title={`重新按当前设定全量重生成全部${defaultVerb}`}
                   className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-45 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
-                  <span>全量重绘</span>
+                  <span>{isVideoMode ? '全量重拍' : '全量重绘'}</span>
                 </button>
               </div>
             ) : (
@@ -187,16 +199,16 @@ export default function StepTwoProduction({
               <span>{ttsCount > 0 ? '重配全部语音' : '仅配音'}</span>
             </button>
 
-            {readyCount > 0 && missingImageCount > 0 && !isProducing ? (
+            {readyCount > 0 && missingMediaCount > 0 && !isProducing ? (
               <button
                 type="button"
                 onClick={onProduceAll}
                 disabled={primaryDisabled}
-                title="按当前画风与提示词重绘全部镜头"
+                title={`按当前设定全量重新生成所有${defaultVerb}`}
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-40 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3 h-3 text-slate-400" />
-                <span>全量重绘</span>
+                <span>{isVideoMode ? '全量重拍' : '全量重绘'}</span>
               </button>
             ) : null}
           </div>
@@ -208,9 +220,15 @@ export default function StepTwoProduction({
             </span>
             <span className="text-slate-700">·</span>
             <span>
-              出图 <strong className="text-blue-300 font-semibold">{readyCount}</strong>/
-              {shots.length}
+              {isVideoMode ? '视频' : '出图'}{' '}
+              <strong className="text-blue-300 font-semibold">{readyCount}</strong>/{shots.length}
             </span>
+            {!isVideoMode && videoReadyCount > 0 ? (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-indigo-300">AI 视频 {videoReadyCount}</span>
+              </>
+            ) : null}
             <span className="text-slate-700">·</span>
             <span className="text-slate-500">
               {aspect.width}×{aspect.height}
@@ -257,9 +275,9 @@ export default function StepTwoProduction({
             title={
               nextBlocked
                 ? isProducing
-                  ? '正在生成分镜图，请等待至少 1 镜就绪'
+                  ? `正在生成${defaultVerb}，请等待至少 1 镜就绪`
                   : `请先点击左侧「${primaryLabel}」`
-                : '进入 Step 3：运镜与成片合成'
+                : '进入 Step 3：成片合成与导出'
             }
             className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all ${
               nextBlocked
@@ -267,7 +285,7 @@ export default function StepTwoProduction({
                 : 'bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-500 hover:to-teal-500 text-white shadow-md shadow-teal-950/40 cursor-pointer'
             }`}
           >
-            <span>下一步：运镜与成片</span>
+            <span>{isVideoMode ? '下一步：剪辑与成片' : '下一步：运镜与成片'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -292,6 +310,7 @@ export default function StepTwoProduction({
             viewMode={viewMode}
             batchRunning={batchRunning}
             ttsBusy={generatingTts || ttsBusyUid === shot.uid}
+            videoWorkflowLoaded={videoWorkflowLoaded}
             onChangePrompt={(val) => onChangePrompt(shot.uid, val)}
             onChangeNarration={(val) => onChangeNarration(shot.uid, val)}
             onChangeMotion={(val) => onChangeMotion(shot.uid, val)}
@@ -301,6 +320,8 @@ export default function StepTwoProduction({
             onDuplicate={() => onDuplicate(idx, shot)}
             onDelete={() => onDelete(shot.uid)}
             onReroll={() => onReroll(shot.uid)}
+            onGenerateVideo={(useFirstFrame) => onGenerateVideoSingle?.(shot.uid, useFirstFrame)}
+            onToggleUseVideo={(val) => onToggleUseVideo?.(shot.uid, val)}
             onGenerateTts={() => onGenerateTtsSingle(shot.uid)}
             onUploadImage={(file) => onUploadImage(shot.uid, file)}
             onPreview={onPreview}

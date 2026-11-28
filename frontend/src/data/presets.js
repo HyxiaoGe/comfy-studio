@@ -1,7 +1,26 @@
 export const CUSTOM_CHIPS_KEY = 'comfy_studio_custom_chips_v1';
 export const ACTIVE_BATCH_KEY = 'comfy_studio_active_batch_v1';
 
+export const CREATION_MODES = [
+  {
+    value: 'storyboard',
+    label: '图文分镜 (SDXL)',
+    title: 'SDXL 快速绘本生图 + FFmpeg 运镜合成（支持单镜转 AI 视频）',
+  },
+  {
+    value: 'video',
+    label: '音画短片 (H3)',
+    title: 'MiniMax H3 直出 5s 动态视频与原生环境音',
+  },
+];
+
 export const HOME_STYLE_OPTIONS = [
+  {
+    id: 'cinematic_live',
+    label: '35mm 温暖电影写实（音画短片推荐）',
+    prefix:
+      'Cinematic live-action look, shot on 35mm film, natural warm sunlight, shallow depth of field, subtle film grain, realistic motion and texture, no text, no watermark',
+  },
   {
     id: 'watercolor_book',
     label: '温暖水彩绘本（纯画风）',

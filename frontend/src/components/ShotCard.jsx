@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Copy,
   Download,
+  Film,
   Image as ImageIcon,
   Loader2,
   Maximize2,
@@ -18,6 +19,7 @@ import {
   Square,
   Trash2,
   Upload,
+  Video,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -52,6 +54,7 @@ export default function ShotCard({
   viewMode = 'list',
   batchRunning,
   ttsBusy,
+  videoWorkflowLoaded = false,
   onChangePrompt,
   onChangeNarration,
   onChangeMotion,
@@ -61,6 +64,8 @@ export default function ShotCard({
   onDuplicate,
   onDelete,
   onReroll,
+  onGenerateVideo,
+  onToggleUseVideo,
   onGenerateTts,
   onUploadImage,
   onPreview,
@@ -70,10 +75,20 @@ export default function ShotCard({
   const [playingAudio, setPlayingAudio] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
 
-  const isBusy = shot.status === 'queued' || shot.status === 'running';
-  const statusInfo = STATUS_STYLE[shot.status] || STATUS_STYLE.idle;
+  const imgBusy = shot.status === 'queued' || shot.status === 'running';
+  const vidBusy = shot.videoStatus === 'queued' || shot.videoStatus === 'running';
+  const isBusy = imgBusy || vidBusy;
+  const hasImage = Boolean(shot.filename);
+  const hasVideo = Boolean(shot.videoFilename);
+  const showingVideo = hasVideo && (shot.useVideo !== false || !hasImage);
+  const statusInfo = showingVideo
+    ? { label: 'AI 视频', cls: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/40' }
+    : STATUS_STYLE[shot.status] || STATUS_STYLE.idle;
   const imgSrc = shot.filename
     ? `/results/${encodeURIComponent(shot.filename)}?v=${shot.imgVer || 1}`
+    : '';
+  const videoSrc = shot.videoFilename
+    ? `/videos/${encodeURIComponent(shot.videoFilename)}?v=${shot.videoVer || 1}`
     : '';
 
   useEffect(() => {
@@ -125,7 +140,17 @@ export default function ShotCard({
           className="relative bg-[#090d14] overflow-hidden flex items-center justify-center border-b border-slate-800"
           style={{ aspectRatio: `${aspect.width} / ${aspect.height}` }}
         >
-          {shot.filename ? (
+          {showingVideo ? (
+            <video
+              key={videoSrc}
+              src={videoSrc}
+              controls
+              loop
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-cover bg-black"
+            />
+          ) : shot.filename ? (
             <>
               <img
                 src={imgSrc}
@@ -154,24 +179,54 @@ export default function ShotCard({
             </>
           ) : (
             <div className="flex flex-col items-center gap-1.5 text-slate-500">
-              <ImageIcon className="w-6 h-6 opacity-50" />
-              <span className="text-xs">#{String(index + 1).padStart(2, '0')} 待生成</span>
+              {mode === 'video' ? (
+                <Film className="w-6 h-6 opacity-50" />
+              ) : (
+                <ImageIcon className="w-6 h-6 opacity-50" />
+              )}
+              <span className="text-xs">
+                #{String(index + 1).padStart(2, '0')} {mode === 'video' ? '待生成视频' : '待生成'}
+              </span>
             </div>
           )}
 
-          <div className="absolute top-2 left-2 flex items-center gap-1.5">
+          <div className="absolute top-2 left-2 flex items-center gap-1.5 pointer-events-none">
             <span className="rounded-md bg-slate-950/80 backdrop-blur-sm border border-white/10 px-2 py-0.5 text-[11px] font-mono font-bold text-blue-300">
               #{String(index + 1).padStart(2, '0')}
             </span>
             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm ${statusInfo.cls}`}>
               {statusInfo.label}
             </span>
+            {showingVideo && shot.videoHasAudio ? (
+              <span className="rounded-full border border-cyan-500/35 bg-cyan-950/80 px-1.5 py-0.5 text-[10px] text-cyan-200 backdrop-blur-sm">
+                原生音
+              </span>
+            ) : null}
           </div>
+
+          {hasImage && hasVideo ? (
+            <button
+              type="button"
+              onClick={() => onToggleUseVideo?.(!showingVideo)}
+              title={showingVideo ? '切换显示/使用静态分镜图' : '切换使用 AI 动态视频'}
+              className="absolute bottom-2 right-2 rounded-md bg-slate-950/85 border border-white/15 hover:border-indigo-400/60 px-2 py-0.5 text-[10px] font-medium text-slate-200 cursor-pointer"
+            >
+              {showingVideo ? '切回静态图' : '切回 AI 视频'}
+            </button>
+          ) : null}
 
           {isBusy ? (
             <div className="absolute inset-0 bg-[#090d14]/75 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 text-xs font-semibold text-slate-100">
               <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-              <span>{shot.status === 'queued' ? '排队中…' : '绘制中…'}</span>
+              <span>
+                {vidBusy
+                  ? shot.videoStatus === 'queued'
+                    ? '排队生成视频…'
+                    : 'H3 视频渲染中…'
+                  : shot.status === 'queued'
+                  ? '排队中…'
+                  : '绘制中…'}
+              </span>
             </div>
           ) : null}
         </div>
@@ -202,15 +257,32 @@ export default function ShotCard({
               ) : null}
             </div>
 
-            <button
-              type="button"
-              onClick={onReroll}
-              disabled={mode !== 'storyboard' || isBusy}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-40 px-2 py-1 text-[11px] font-medium text-slate-200 cursor-pointer"
-            >
-              <RefreshCw className={`w-3 h-3 text-blue-400 ${isBusy ? 'animate-spin' : ''}`} />
-              <span>重绘</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              {mode !== 'video' ? (
+                <button
+                  type="button"
+                  onClick={onReroll}
+                  disabled={isBusy}
+                  title="重新绘制静态分镜图"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 disabled:opacity-40 px-2 py-1 text-[11px] font-medium text-slate-200 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 text-blue-400 ${imgBusy ? 'animate-spin' : ''}`} />
+                  <span>重绘</span>
+                </button>
+              ) : null}
+              {videoWorkflowLoaded ? (
+                <button
+                  type="button"
+                  onClick={() => onGenerateVideo?.(hasImage)}
+                  disabled={isBusy}
+                  title={hasImage ? '以当前图片为首帧生成 MiniMax H3 动态视频' : '用 MiniMax H3 生成动态视频'}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/30 disabled:opacity-40 px-2 py-1 text-[11px] font-medium text-indigo-200 cursor-pointer"
+                >
+                  <Video className={`w-3 h-3 ${vidBusy ? 'animate-pulse' : ''}`} />
+                  <span>{hasVideo ? '重拍视频' : mode === 'video' ? '拍视频' : '转视频'}</span>
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       </article>
@@ -227,7 +299,39 @@ export default function ShotCard({
         className="relative rounded-xl border border-slate-800 bg-[#090d14] overflow-hidden flex items-center justify-center"
         style={{ aspectRatio: `${aspect.width} / ${aspect.height}` }}
       >
-        {shot.filename ? (
+        {showingVideo ? (
+          <>
+            <video
+              key={videoSrc}
+              src={videoSrc}
+              controls
+              loop
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-cover bg-black"
+            />
+            <div className="absolute top-2 left-2 flex items-center gap-1 pointer-events-none">
+              <span className="rounded-md bg-indigo-950/85 border border-indigo-400/40 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-200">
+                {shot.videoMode === 'i2v' ? '图生视频' : 'H3 视频'}
+              </span>
+              {shot.videoHasAudio ? (
+                <span className="rounded-md bg-cyan-950/85 border border-cyan-500/35 px-1.5 py-0.5 text-[10px] text-cyan-200">
+                  原生音
+                </span>
+              ) : null}
+            </div>
+            {hasImage ? (
+              <button
+                type="button"
+                onClick={() => onToggleUseVideo?.(false)}
+                title="切回预览并使用静态分镜图"
+                className="absolute top-2 right-2 rounded-md bg-slate-950/85 border border-white/15 hover:border-blue-400/60 px-2 py-0.5 text-[10px] font-medium text-slate-200 cursor-pointer"
+              >
+                切到静图
+              </button>
+            ) : null}
+          </>
+        ) : shot.filename ? (
           <>
             <img
               src={imgSrc}
@@ -236,6 +340,16 @@ export default function ShotCard({
               className="w-full h-full object-cover cursor-zoom-in transition-transform duration-300 group-hover:scale-[1.015]"
             />
             <div className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 flex items-center gap-1 transition-opacity">
+              {hasVideo ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleUseVideo?.(true)}
+                  title="切换到已生成的 AI 视频"
+                  className="rounded-lg bg-indigo-950/90 border border-indigo-400/40 px-2 py-1 text-[10px] font-medium text-indigo-200 hover:bg-indigo-900 cursor-pointer"
+                >
+                  切到视频
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => imgInputRef.current?.click()}
@@ -270,15 +384,21 @@ export default function ShotCard({
           </>
         ) : (
           <div className="flex flex-col items-center gap-2 text-slate-500 px-4 text-center">
-            <ImageIcon className="w-6 h-6 opacity-50" />
-            <span className="text-xs">分镜 #{String(index + 1).padStart(2, '0')} 待生成</span>
+            {mode === 'video' ? (
+              <Film className="w-6 h-6 opacity-50" />
+            ) : (
+              <ImageIcon className="w-6 h-6 opacity-50" />
+            )}
+            <span className="text-xs">
+              分镜 #{String(index + 1).padStart(2, '0')} {mode === 'video' ? '待生成视频' : '待生成'}
+            </span>
             <button
               type="button"
               onClick={() => imgInputRef.current?.click()}
               className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#111827] hover:bg-slate-800 px-2 py-1 text-[11px] text-slate-300 cursor-pointer"
             >
               <Upload className="w-3 h-3" />
-              <span>上传本地图</span>
+              <span>上传参考图</span>
             </button>
           </div>
         )}
@@ -286,7 +406,15 @@ export default function ShotCard({
         {isBusy ? (
           <div className="absolute inset-0 bg-[#090d14]/75 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 text-xs font-semibold text-slate-100">
             <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-            <span>{shot.status === 'queued' ? '排队等待显存…' : 'SDXL 绘制中…'}</span>
+            <span>
+              {vidBusy
+                ? shot.videoStatus === 'queued'
+                  ? '排队等待显存…'
+                  : 'MiniMax H3 生成中…'
+                : shot.status === 'queued'
+                ? '排队等待显存…'
+                : 'SDXL 绘制中…'}
+            </span>
           </div>
         ) : null}
       </div>
@@ -417,29 +545,36 @@ export default function ShotCard({
           ) : null}
         </div>
 
-        {shot.error ? (
+        {shot.error || shot.videoError ? (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs text-rose-300">
-            {shot.error}
+            {shot.videoError || shot.error}
           </div>
         ) : null}
 
         {/* Bottom Motion & Reroll Bar */}
         <div className="mt-auto pt-0.5 flex items-center justify-between gap-2.5 flex-wrap">
           <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-400 font-medium">运镜</span>
-              <SelectDropdown
-                size="sm"
-                className="w-[150px]"
-                value={shot.motion}
-                onChange={onChangeMotion}
-                options={MOTION_OPTIONS}
-                renderIcon={(opt) => {
-                  const IconComp = MOTION_ICONS[opt.icon];
-                  return IconComp ? <IconComp className="w-3.5 h-3.5 text-cyan-400 shrink-0" /> : null;
-                }}
-              />
-            </div>
+            {!showingVideo ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-400 font-medium">运镜</span>
+                <SelectDropdown
+                  size="sm"
+                  className="w-[150px]"
+                  value={shot.motion}
+                  onChange={onChangeMotion}
+                  options={MOTION_OPTIONS}
+                  renderIcon={(opt) => {
+                    const IconComp = MOTION_ICONS[opt.icon];
+                    return IconComp ? <IconComp className="w-3.5 h-3.5 text-cyan-400 shrink-0" /> : null;
+                  }}
+                />
+              </div>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-2 py-1 text-[11px] font-medium text-indigo-200">
+                <Film className="w-3 h-3 text-indigo-400" />
+                <span>AI 原生动态{shot.videoDuration ? ` · ${shot.videoDuration}s` : ''}</span>
+              </span>
+            )}
 
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-slate-400 font-medium">时长</span>
@@ -453,15 +588,42 @@ export default function ShotCard({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onReroll}
-            disabled={mode !== 'storyboard' || isBusy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-600 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${isBusy ? 'animate-spin' : ''}`} />
-            <span>仅重绘此镜</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {mode !== 'video' ? (
+              <button
+                type="button"
+                onClick={onReroll}
+                disabled={isBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#0c121e] hover:bg-slate-800 hover:border-slate-600 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${imgBusy ? 'animate-spin' : ''}`} />
+                <span>仅重绘此镜</span>
+              </button>
+            ) : null}
+
+            {videoWorkflowLoaded ? (
+              <button
+                type="button"
+                onClick={() => onGenerateVideo?.(hasImage)}
+                disabled={isBusy}
+                title={
+                  hasImage
+                    ? '以当前分镜图为首帧，使用 MiniMax H3 生成 5s 动态视频与原生音效'
+                    : '直接用 MiniMax H3 文生视频（含原生环境音）'
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/45 bg-indigo-500/15 hover:bg-indigo-500/30 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium text-indigo-200 transition-colors cursor-pointer"
+              >
+                <Video className={`w-3.5 h-3.5 text-indigo-300 ${vidBusy ? 'animate-pulse' : ''}`} />
+                <span>
+                  {hasVideo
+                    ? '重拍 AI 视频'
+                    : hasImage
+                    ? '首帧图生视频 (H3)'
+                    : '生成 AI 视频 (H3)'}
+                </span>
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </article>

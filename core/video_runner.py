@@ -64,6 +64,87 @@ def build_shot_workflow(template, shot, prompt_node_id, seed):
     return wf
 
 
+def _aspect_selector_label(width, height):
+    """将画幅像素尺寸映射为 ComfyUI ResolutionSelector 支持的比例标签。"""
+    try:
+        w = int(width or 1344)
+        h = int(height or 768)
+    except (TypeError, ValueError):
+        return "16:9 (Widescreen)"
+    if w <= 0 or h <= 0:
+        return "16:9 (Widescreen)"
+    ratio = w / h
+    choices = [
+        (16 / 9, "16:9 (Widescreen)"),
+        (9 / 16, "9:16 (Portrait Widescreen)"),
+        (1.0, "1:1 (Square)"),
+        (4 / 3, "4:3 (Standard)"),
+        (3 / 4, "3:4 (Portrait Standard)"),
+    ]
+    return min(choices, key=lambda item: abs(item[0] - ratio))[1]
+
+
+def build_video_workflow(
+    template,
+    prompt,
+    seed=42,
+    duration=5.0,
+    width=1344,
+    height=768,
+    first_frame_name=None,
+    filename_prefix="video/comfy_studio",
+    megapixels=0.4,
+):
+    """基于 MiniMax H3 API 模板构建文生视频或图生视频（first_frame）工作流。"""
+    wf = copy.deepcopy(template)
+    prompt_node_id, prompt_node = pick_prompt_node(wf)
+    prompt_node["inputs"][text_key(prompt_node) or "prompt"] = (prompt or "").strip()
+
+    try:
+        dur = max(3.0, min(10.0, float(duration or 5.0)))
+    except (TypeError, ValueError):
+        dur = 5.0
+    try:
+        seed_val = max(0, int(seed))
+    except (TypeError, ValueError):
+        seed_val = 42
+
+    aspect_label = _aspect_selector_label(width, height)
+    first_frame_node_id = "m2_first_frame"
+    if first_frame_name:
+        wf[first_frame_node_id] = {
+            "inputs": {"image": first_frame_name},
+            "class_type": "LoadImage",
+            "_meta": {"title": "加载首帧图"},
+        }
+
+    for node_id, n in list(wf.items()):
+        if not isinstance(n, dict):
+            continue
+        cls = n.get("class_type") or ""
+        inputs = n.get("inputs") or {}
+        title = ((n.get("_meta") or {}).get("title") or "").lower()
+        if cls == "ResolutionSelector":
+            inputs["aspect_ratio"] = aspect_label
+            inputs["megapixels"] = float(megapixels or 0.4)
+            inputs["multiple"] = 32
+        elif cls == "PrimitiveFloat" and ("duration" in title or node_id == "140:133"):
+            inputs["value"] = dur
+        elif cls == "MiniMaxH3ImageToVideo":
+            if first_frame_name:
+                inputs["first_frame"] = [first_frame_node_id, 0]
+            else:
+                inputs.pop("first_frame", None)
+        if isinstance(inputs.get("seed"), int):
+            inputs["seed"] = seed_val
+        if isinstance(inputs.get("noise_seed"), int):
+            inputs["noise_seed"] = seed_val
+        if isinstance(inputs.get("filename_prefix"), str):
+            inputs["filename_prefix"] = filename_prefix
+
+    return wf
+
+
 def concat_with_ffmpeg(files, final_path):
     concat_list = os.path.join(os.path.dirname(final_path), "concat.txt")
     with open(concat_list, "w", encoding="utf-8") as f:

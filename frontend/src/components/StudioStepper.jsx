@@ -1,35 +1,37 @@
-import { ArrowLeft, Check, ChevronRight, Clapperboard, FileText, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, Clapperboard, FileText, Film, Image as ImageIcon } from 'lucide-react';
 
 export default function StudioStepper({
   activeStep,
   onStepChange,
   onGoHome,
+  mode = 'storyboard',
   shotCount,
   readyCount,
   ttsCount,
   hasVideo,
 }) {
+  const isVideoMode = mode === 'video';
   const steps = [
     {
       id: 1,
       code: 'STEP 1',
       title: '创意与剧本',
-      sub: `${shotCount} 镜脚本与画风`,
+      sub: `${shotCount} 镜脚本${isVideoMode ? ' · 音画模式' : '与画风'}`,
       icon: FileText,
       done: shotCount > 0,
     },
     {
       id: 2,
       code: 'STEP 2',
-      title: '配音与生图',
-      sub: `配音 ${ttsCount}/${shotCount} · 出图 ${readyCount}/${shotCount}`,
-      icon: ImageIcon,
+      title: isVideoMode ? '配音与视频' : '配音与生图',
+      sub: `配音 ${ttsCount}/${shotCount} · ${isVideoMode ? '视频' : '就绪'} ${readyCount}/${shotCount}`,
+      icon: isVideoMode ? Film : ImageIcon,
       done: shotCount > 0 && readyCount === shotCount,
     },
     {
       id: 3,
       code: 'STEP 3',
-      title: '运镜与成片',
+      title: isVideoMode ? '剪辑与成片' : '运镜与成片',
       sub: hasVideo ? '成片已就绪' : '转场 · 配乐 · 导出',
       icon: Clapperboard,
       done: hasVideo,

@@ -226,8 +226,14 @@ class StudioStorage:
         out = []
         for row in rows:
             shots = _json_loads(row["shots_json"], [])
-            ready_shots = [s for s in shots if isinstance(s, dict) and s.get("filename")]
-            cover = ready_shots[0]["filename"] if ready_shots else ""
+            ready_shots = [
+                s
+                for s in shots
+                if isinstance(s, dict) and (s.get("filename") or s.get("videoFilename"))
+            ]
+            img_shots = [s for s in shots if isinstance(s, dict) and s.get("filename")]
+            video_shots = [s for s in shots if isinstance(s, dict) and s.get("videoFilename")]
+            cover = img_shots[0]["filename"] if img_shots else ""
             out.append({
                 "id": row["id"],
                 "title": row["title"],
@@ -237,6 +243,7 @@ class StudioStorage:
                 "seed": row["seed"],
                 "shot_count": len(shots),
                 "ready_count": len(ready_shots),
+                "video_count": len(video_shots),
                 "cover_filename": cover,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],

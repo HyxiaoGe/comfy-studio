@@ -40,7 +40,8 @@ export default function TopBar({
 
   const tooltip = health
     ? [
-        `工作流: ${health.workflow_loaded ? '就绪' : '缺失'}`,
+        `SDXL 生图: ${health.workflow_loaded ? '就绪' : '缺失'}`,
+        `MiniMax H3: ${health.video_workflow_loaded ? '就绪' : '缺失'}`,
         `ComfyUI: ${health.comfyui === 'ok' ? '在线' : '离线'}`,
         `FFmpeg: ${health.ffmpeg ? (health.nvenc ? 'NVENC' : 'x264') : '缺失'}`,
         `DeepSeek: ${health.llm_configured ? '已配置' : '未配置'}`,

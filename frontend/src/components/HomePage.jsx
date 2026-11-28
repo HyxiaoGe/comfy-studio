@@ -12,11 +12,13 @@ import {
 } from 'lucide-react';
 import {
   ASPECT_RATIOS,
+  CREATION_MODES,
   HOME_STYLE_OPTIONS,
   IDEA_SUGGESTIONS,
   NARRATION_STYLES,
 } from '../data/presets';
 import AutoGrowTextarea from './ui/AutoGrowTextarea';
+import SegmentedControl from './ui/SegmentedControl';
 import SelectDropdown from './ui/SelectDropdown';
 import StoryScopeControl from './ui/StoryScopeControl';
 
@@ -28,6 +30,9 @@ function formatTime(ts) {
 }
 
 export default function HomePage({
+  creationMode,
+  onCreationModeChange,
+  videoWorkflowLoaded,
   storyIdea,
   onStoryIdeaChange,
   storyPlanMode,
@@ -126,6 +131,27 @@ export default function HomePage({
 
           {/* Right: Parameters & Start CTA */}
           <div className="rounded-2xl border border-slate-800/90 bg-[#0b101b]/90 p-4 space-y-3.5">
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-xs font-semibold text-slate-300">创作引擎</span>
+                <span className="text-[10px] text-slate-400">
+                  {creationMode === 'video'
+                    ? videoWorkflowLoaded
+                      ? 'MiniMax H3 就绪 · 直出 5s 音画'
+                      : '缺少 MiniMax H3 工作流'
+                    : 'SDXL 极速出图 · 可单镜转视频'}
+                </span>
+              </div>
+              <SegmentedControl
+                fullWidth
+                size="sm"
+                variant="subtle"
+                value={creationMode}
+                onChange={onCreationModeChange}
+                options={CREATION_MODES}
+              />
+            </div>
+
             <StoryScopeControl
               planMode={storyPlanMode}
               onPlanModeChange={onStoryPlanModeChange}
@@ -237,10 +263,17 @@ export default function HomePage({
                         alt={p.title}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                       />
+                    ) : p.video_count > 0 ? (
+                      <div className="flex flex-col items-center gap-1.5 text-cyan-300/80">
+                        <Film className="w-6 h-6" />
+                        <span className="text-[11px] font-medium">已生成 {p.video_count} 段 AI 视频</span>
+                      </div>
                     ) : (
                       <div className="flex flex-col items-center gap-1.5 text-slate-600">
                         <Clapperboard className="w-6 h-6 opacity-60" />
-                        <span className="text-[11px]">待生成分镜图</span>
+                        <span className="text-[11px]">
+                          {p.mode === 'video' ? '待生成动态视频' : '待生成分镜图'}
+                        </span>
                       </div>
                     )}
 
@@ -248,6 +281,11 @@ export default function HomePage({
                       <span className="rounded-md bg-slate-950/80 backdrop-blur-sm border border-white/10 px-2 py-0.5 text-[11px] font-medium text-slate-200 tabular-nums">
                         {p.ready_count}/{p.shot_count} 镜
                       </span>
+                      {p.mode === 'video' ? (
+                        <span className="rounded-md bg-indigo-950/85 backdrop-blur-sm border border-indigo-400/45 px-2 py-0.5 text-[10px] font-semibold text-indigo-200">
+                          音画短片
+                        </span>
+                      ) : null}
                       {hasComp ? (
                         <span className="rounded-md bg-emerald-950/85 backdrop-blur-sm border border-emerald-400/50 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 shadow-sm">
                           已成片

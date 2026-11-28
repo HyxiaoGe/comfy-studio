@@ -79,6 +79,7 @@ export default function App() {
 
   const [activeView, setActiveView] = useState(initRouteRef.current.view); // home | studio
   const [activeStep, setActiveStep] = useState(initRouteRef.current.step || 1); // 1 | 2 | 3
+  const [homeCreationMode, setHomeCreationMode] = useState('storyboard'); // storyboard | video
   const [mode, setMode] = useState('storyboard');
   const [projectId, setProjectId] = useState(null);
   const [title, setTitle] = useState('未命名分镜项目');
@@ -106,6 +107,7 @@ export default function App() {
   const [transitionType, setTransitionType] = useState('fade');
   const [burnSubtitles, setBurnSubtitles] = useState(true);
   const [autoAlignTts, setAutoAlignTts] = useState(true);
+  const [keepVideoAudio, setKeepVideoAudio] = useState(true);
   const [audioFiles, setAudioFiles] = useState([]);
   const [bgmFilename, setBgmFilename] = useState('');
   const [bgmVolume, setBgmVolume] = useState(0.32);
@@ -174,6 +176,15 @@ export default function App() {
       seed: null,
       status: 'idle',
       error: '',
+      videoFilename: '',
+      videoVer: 0,
+      videoDuration: 0,
+      videoHasAudio: false,
+      videoSeed: null,
+      videoMode: '',
+      useVideo: false,
+      videoStatus: 'idle',
+      videoError: '',
     }),
     [nextUid]
   );
@@ -205,6 +216,15 @@ export default function App() {
         seed: s.seed ?? null,
         status: s.filename ? 'ready' : s.status === 'error' ? 'error' : 'idle',
         error: s.error || '',
+        videoFilename: s.videoFilename || '',
+        videoVer: s.videoVer || 0,
+        videoDuration: s.videoDuration || 0,
+        videoHasAudio: Boolean(s.videoHasAudio),
+        videoSeed: s.videoSeed ?? null,
+        videoMode: s.videoMode || '',
+        useVideo: Boolean(s.videoFilename && (s.useVideo !== false || !s.filename)),
+        videoStatus: s.videoFilename ? 'ready' : s.videoStatus === 'error' ? 'error' : 'idle',
+        videoError: s.videoError || '',
       })),
     };
     try {
@@ -304,6 +324,15 @@ export default function App() {
         seed: typeof s.seed === 'number' ? s.seed : null,
         status: s.filename ? 'ready' : s.status === 'error' ? 'error' : 'idle',
         error: s.error || '',
+        videoFilename: s.videoFilename || '',
+        videoVer: Number(s.videoVer) || (s.videoFilename ? 1 : 0),
+        videoDuration: Number(s.videoDuration) || 0,
+        videoHasAudio: Boolean(s.videoHasAudio),
+        videoSeed: typeof s.videoSeed === 'number' ? s.videoSeed : null,
+        videoMode: s.videoMode || '',
+        useVideo: Boolean(s.videoFilename && (s.useVideo !== false || !s.filename)),
+        videoStatus: s.videoFilename ? 'ready' : s.videoStatus === 'error' ? 'error' : 'idle',
+        videoError: s.videoError || '',
       };
     });
     setShots(hydrated);
@@ -329,6 +358,7 @@ export default function App() {
     );
     setAiTargetDuration(clampedDuration);
     setAiShotCount(clampedShots);
+    const targetMode = source === 'home' ? homeCreationMode : mode;
     setGeneratingStoryboard(true);
     try {
       const r = await fetch('/api/storyboard', {
@@ -340,6 +370,7 @@ export default function App() {
           target_duration: storyPlanMode === 'duration' ? clampedDuration : 0,
           visual_style: source === 'home' ? homeVisualStyle : '',
           narration_style: narrationStyle,
+          mode: targetMode,
         }),
       });
       const data = await r.json();
@@ -348,7 +379,7 @@ export default function App() {
       const nextShots = (sb.shots || []).map((s, idx) => ({
         ...buildShot(s.prompt || '', idx, s.narration || ''),
         motion: s.motion || MOTION_CYCLE[idx % MOTION_CYCLE.length],
-        duration: Number(s.duration) || 4,
+        duration: Number(s.duration) || (targetMode === 'video' ? 5 : 4),
       }));
       if (!nextShots.length) {
         throw new Error('AI 未返回有效分镜，请调整创意后再试');
@@ -356,14 +387,14 @@ export default function App() {
       const nextState = {
         projectId: '',
         title: sb.title || cleanIdea.slice(0, 18),
-        mode: 'storyboard',
+        mode: targetMode,
         prefix: sb.prefix || stateRef.current.prefix || STYLE_CHIPS[0].prefix,
         negativePrompt: sb.negative_prompt || stateRef.current.negativePrompt || DEFAULT_NEGATIVE_PROMPT,
         seed: stateRef.current.seed || 42,
         aspectValue: stateRef.current.aspectValue || '1344x768',
         shots: nextShots,
       };
-      setMode('storyboard');
+      setMode(targetMode);
       setProjectId(null);
       setComposeState((prev) => ({ ...prev, visible: false, videoUrl: '' }));
       setTitle(nextState.title);
@@ -390,7 +421,9 @@ export default function App() {
     aiTargetDuration,
     buildShot,
     fetchLists,
+    homeCreationMode,
     homeVisualStyle,
+    mode,
     narrationStyle,
     pushToast,
     saveProjectNow,
@@ -426,7 +459,7 @@ export default function App() {
   }, [batchRunning]);
 
   const resumeBatchPolling = useCallback(
-    (jobId, submittedUids) => {
+    (jobId, submittedUids, jobType = 'image') => {
       setBatchRunning(true);
       clearInterval(batchTimerRef.current);
 
@@ -436,12 +469,42 @@ export default function App() {
           const sj = await sr.json();
           if (!sr.ok) throw new Error(sj.error || `HTTP ${sr.status}`);
 
+          const isVid = (sj.mode || jobType) === 'video';
           let anyChanged = false;
           setShots((prev) =>
             prev.map((card) => {
               const idx = submittedUids.indexOf(card.uid);
               if (idx === -1) return card;
               const item = (sj.items || [])[idx];
+              if (isVid) {
+                if (item && card.videoFilename !== item.filename) {
+                  anyChanged = true;
+                  return {
+                    ...card,
+                    videoFilename: item.filename,
+                    videoDuration: item.duration || card.duration || 5,
+                    videoHasAudio: Boolean(item.has_audio),
+                    videoSeed: item.seed ?? null,
+                    videoMode: item.mode || 't2v',
+                    videoVer: (card.videoVer || 0) + 1,
+                    useVideo: true,
+                    videoStatus: 'ready',
+                    videoError: '',
+                  };
+                }
+                if (sj.status === 'running' && idx === Math.max(0, (sj.current_index || 1) - 1) && !item) {
+                  return { ...card, videoStatus: 'running', videoError: '' };
+                }
+                if (sj.status === 'queued' && !item) {
+                  return { ...card, videoStatus: 'queued', videoError: '' };
+                }
+                if ((sj.status === 'failed' || sj.status === 'interrupted') && !item) {
+                  anyChanged = true;
+                  return { ...card, videoStatus: 'error', videoError: sj.error || '视频生成中断或失败' };
+                }
+                return card;
+              }
+
               if (item && card.filename !== item.filename) {
                 anyChanged = true;
                 return {
@@ -467,22 +530,23 @@ export default function App() {
             })
           );
 
+          const unitLabel = isVid ? '段视频' : '镜';
           if (sj.status === 'running') {
             setGpuProgress({
-              text: `生成第 ${Math.min(sj.done + 1, sj.total)}/${sj.total} 镜`,
+              text: `${isVid ? 'H3 生成' : '生成'}第 ${Math.min(sj.done + 1, sj.total)}/${sj.total} ${unitLabel}`,
               done: sj.done,
               total: sj.total,
               busy: true,
             });
           } else if (sj.status === 'queued') {
-            setGpuProgress({ text: `排队中（共 ${sj.total} 镜）`, done: 0, total: sj.total, busy: true });
+            setGpuProgress({ text: `排队中（共 ${sj.total} ${unitLabel}）`, done: 0, total: sj.total, busy: true });
           } else if (sj.status === 'done') {
             clearInterval(batchTimerRef.current);
             setBatchRunning(false);
             localStorage.removeItem(ACTIVE_BATCH_KEY);
             setGpuProgress({ text: `全部完成 ${sj.done}/${sj.total}`, done: sj.done, total: sj.total, busy: false });
             anyChanged = true;
-            pushToast(`分镜全部生成完成（${sj.done}/${sj.total}）`, 'success');
+            pushToast(`${isVid ? 'AI 视频' : '分镜'}全部生成完成（${sj.done}/${sj.total}）`, 'success');
             refreshHealth();
           } else if (sj.status === 'failed' || sj.status === 'interrupted') {
             clearInterval(batchTimerRef.current);
@@ -505,11 +569,15 @@ export default function App() {
         }
       };
 
-      batchTimerRef.current = setInterval(pollOnce, 1800);
+      batchTimerRef.current = setInterval(pollOnce, isVidInterval(jobType));
       pollOnce();
     },
     [pushToast, refreshHealth, saveProjectNow]
   );
+
+  function isVidInterval(jobType) {
+    return jobType === 'video' ? 3000 : 1800;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -527,7 +595,7 @@ export default function App() {
             await restoreCompositionForProject(data.project.id);
             const projShots = data.project.shots || [];
             const hasContent = projShots.some((s) => (s.prompt || '').trim() || (s.narration || '').trim());
-            const hasReady = projShots.some((s) => Boolean(s.filename));
+            const hasReady = projShots.some((s) => Boolean(s.filename || s.videoFilename));
             const resolvedStep = initRoute.step || (hasReady || hasContent ? 2 : 1);
             setActiveView('studio');
             setActiveStep(resolvedStep);
@@ -569,7 +637,7 @@ export default function App() {
               setActiveView('studio');
               setActiveStep(2);
               pushBrowserPath(buildStudioPath(activePid, 2), true);
-              resumeBatchPolling(saved.job_id, saved.submittedUids);
+              resumeBatchPolling(saved.job_id, saved.submittedUids, saved.jobType || 'image');
             } else {
               localStorage.removeItem(ACTIVE_BATCH_KEY);
             }
@@ -879,9 +947,9 @@ export default function App() {
 
       localStorage.setItem(
         ACTIVE_BATCH_KEY,
-        JSON.stringify({ job_id: data.job_id, project_id: pid, submittedUids })
+        JSON.stringify({ job_id: data.job_id, project_id: pid, submittedUids, jobType: 'image' })
       );
-      resumeBatchPolling(data.job_id, submittedUids);
+      resumeBatchPolling(data.job_id, submittedUids, 'image');
     } catch (e) {
       setBatchRunning(false);
       setShots((prev) =>
@@ -894,19 +962,95 @@ export default function App() {
     }
   };
 
+  const handleRunVideoBatch = async ({ onlyMissing = false, overrideShots = null } = {}) => {
+    const curShots = overrideShots || stateRef.current.shots || [];
+    const activeShots = curShots.filter(
+      (s) => (s.prompt.trim().length > 0 || Boolean(s.filename)) && (!onlyMissing || !s.videoFilename)
+    );
+    if (!activeShots.length) {
+      pushToast(onlyMissing ? '所有分镜视频均已就绪' : '请至少填写一个分镜提示词', 'info');
+      return;
+    }
+
+    let nextSeed = seed;
+    if (autoRandomize) {
+      nextSeed = randomSeed();
+      setSeed(nextSeed);
+    }
+    const nextState = { ...stateRef.current, shots: curShots, seed: nextSeed };
+    stateRef.current = nextState;
+    const saved = await saveProjectNow(nextState);
+    const pid = saved?.id || projectId || '';
+    const submittedUids = activeShots.map((s) => s.uid);
+
+    setBatchRunning(true);
+    setShots((prev) =>
+      prev.map((s) =>
+        submittedUids.includes(s.uid) ? { ...s, videoStatus: 'queued', videoError: '' } : s
+      )
+    );
+    setGpuProgress({ text: '正在提交 H3 视频队列…', done: 0, total: activeShots.length, busy: true });
+
+    try {
+      const r = await fetch('/api/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: pid,
+          prefix: prefix.trim(),
+          seed: nextSeed,
+          width: aspect.width,
+          height: aspect.height,
+          shots: activeShots.map((s) => ({
+            prompt: s.prompt.trim(),
+            duration: Math.max(3, Math.min(10, Number(s.duration) || 5)),
+            first_frame_filename: s.filename || '',
+          })),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+      localStorage.setItem(
+        ACTIVE_BATCH_KEY,
+        JSON.stringify({ job_id: data.job_id, project_id: pid, submittedUids, jobType: 'video' })
+      );
+      resumeBatchPolling(data.job_id, submittedUids, 'video');
+    } catch (e) {
+      setBatchRunning(false);
+      setShots((prev) =>
+        prev.map((s) =>
+          submittedUids.includes(s.uid) ? { ...s, videoStatus: 'error', videoError: e.message } : s
+        )
+      );
+      setGpuProgress({ text: '视频提交失败', done: 0, total: 1, busy: false });
+      pushToast(`提交视频失败：${e.message}`, 'error');
+    }
+  };
+
   const handleProduceAll = async ({ onlyMissingImages = true } = {}) => {
     let latestShots = stateRef.current.shots || [];
     const missingTts = latestShots.filter((s) => (s.narration || '').trim() && !s.ttsFilename);
     if (missingTts.length > 0) {
       if (!health?.tts_configured) {
-        pushToast('未配置 TTS Key，已跳过自动配音并开始生成分镜图', 'info');
+        pushToast('未配置 TTS Key，已跳过自动配音并继续生成画面', 'info');
       } else {
         const ttsRes = await handleGenerateTts({ onlyMissing: true, silentNoCandidate: true });
         latestShots = ttsRes.shots || latestShots;
         if (!ttsRes.ok) {
-          pushToast('配音合成失败，将继续提交分镜图任务（稍后可单独补配）', 'info');
+          pushToast('配音合成失败，将继续提交画面任务（稍后可单独补配）', 'info');
         }
       }
+    }
+
+    if (mode === 'video') {
+      const needVideos = latestShots.some(
+        (s) => (s.prompt.trim().length > 0 || Boolean(s.filename)) && (!onlyMissingImages || !s.videoFilename)
+      );
+      if (needVideos) {
+        await handleRunVideoBatch({ onlyMissing: onlyMissingImages, overrideShots: latestShots });
+      }
+      return;
     }
 
     const needImages = latestShots.some(
@@ -1009,8 +1153,127 @@ export default function App() {
     }
   };
 
+  const handleGenerateVideoSingle = async (uid, useFirstFrame = false) => {
+    const target = (stateRef.current.shots || []).find((s) => s.uid === uid);
+    if (!target) return;
+    const prompt = (target.prompt || '').trim();
+    const ff = useFirstFrame && target.filename ? target.filename : '';
+    if (!prompt && !ff) {
+      setShots((prev) =>
+        prev.map((s) =>
+          s.uid === uid ? { ...s, videoStatus: 'error', videoError: '请先填写这一镜的场景或动作描述' } : s
+        )
+      );
+      return;
+    }
+
+    let pid = projectId;
+    if (!pid) {
+      const saved = await saveProjectNow();
+      pid = saved?.id || '';
+    }
+    const nextSeed =
+      (typeof target.videoSeed === 'number'
+        ? target.videoSeed
+        : typeof target.seed === 'number'
+        ? target.seed
+        : seed) + 1;
+
+    setShots((prev) =>
+      prev.map((s) => (s.uid === uid ? { ...s, videoStatus: 'queued', videoError: '' } : s))
+    );
+
+    try {
+      const r = await fetch('/api/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: pid || '',
+          prefix: prefix.trim(),
+          seed: nextSeed,
+          width: aspect.width,
+          height: aspect.height,
+          shots: [
+            {
+              prompt,
+              duration: Math.max(3, Math.min(10, Number(target.duration) || 5)),
+              first_frame_filename: ff,
+            },
+          ],
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+      const timer = setInterval(async () => {
+        try {
+          const sr = await fetch(`/api/status/${data.job_id}`);
+          const sj = await sr.json();
+          if (sj.status === 'done' && sj.items?.length) {
+            clearInterval(timer);
+            const item = sj.items[0];
+            setShots((prev) =>
+              prev.map((s) =>
+                s.uid === uid
+                  ? {
+                      ...s,
+                      videoFilename: item.filename,
+                      videoDuration: item.duration || s.duration || 5,
+                      videoHasAudio: Boolean(item.has_audio),
+                      videoSeed: item.seed ?? nextSeed,
+                      videoMode: item.mode || (ff ? 'i2v' : 't2v'),
+                      videoVer: (s.videoVer || 0) + 1,
+                      useVideo: true,
+                      videoStatus: 'ready',
+                      videoError: '',
+                    }
+                  : s
+              )
+            );
+            setTimeout(() => saveProjectNow(), 50);
+            refreshHealth();
+            pushToast(ff ? '图生视频完成 (MiniMax H3)' : '动态视频生成完成 (MiniMax H3)', 'success');
+          } else if (sj.status === 'failed' || sj.status === 'interrupted') {
+            clearInterval(timer);
+            setShots((prev) =>
+              prev.map((s) =>
+                s.uid === uid ? { ...s, videoStatus: 'error', videoError: sj.error || '视频生成失败' } : s
+              )
+            );
+            setTimeout(() => saveProjectNow(), 50);
+            refreshHealth();
+          } else {
+            const nextStatus = sj.status === 'queued' ? 'queued' : 'running';
+            setShots((prev) =>
+              prev.map((s) =>
+                s.uid === uid && s.videoStatus !== nextStatus ? { ...s, videoStatus: nextStatus } : s
+              )
+            );
+          }
+        } catch (err) {
+          clearInterval(timer);
+          setShots((prev) =>
+            prev.map((s) =>
+              s.uid === uid ? { ...s, videoStatus: 'error', videoError: err.message } : s
+            )
+          );
+        }
+      }, 2800);
+    } catch (e) {
+      setShots((prev) =>
+        prev.map((s) => (s.uid === uid ? { ...s, videoStatus: 'error', videoError: e.message } : s))
+      );
+      pushToast(`提交视频失败：${e.message}`, 'error');
+    }
+  };
+
+  const toggleShotUseVideo = (uid, val) => {
+    setShots((prev) => prev.map((s) => (s.uid === uid ? { ...s, useVideo: Boolean(val) } : s)));
+    scheduleSave();
+  };
+
   const handleCompose = async () => {
-    const readyShots = shots.filter((s) => Boolean(s.filename));
+    const readyShots = shots.filter((s) => Boolean(s.filename || s.videoFilename));
     if (!readyShots.length) return;
     const saved = await saveProjectNow();
     const pid = saved?.id || projectId || '';
@@ -1033,7 +1296,10 @@ export default function App() {
         body: JSON.stringify({
           project_id: pid,
           shots: readyShots.map((s) => ({
-            filename: s.filename,
+            filename: s.filename || '',
+            video_filename: s.videoFilename || '',
+            use_video: Boolean(s.videoFilename && (s.useVideo !== false || !s.filename)),
+            use_video_audio: keepVideoAudio,
             motion: s.motion,
             duration: s.duration,
             narration: s.narration || '',
@@ -1104,7 +1370,7 @@ export default function App() {
     }
   };
 
-  const readyCount = shots.filter((s) => Boolean(s.filename)).length;
+  const readyCount = shots.filter((s) => Boolean(s.filename || s.videoFilename)).length;
   const ttsCount = shots.filter((s) => Boolean(s.ttsFilename)).length;
 
   const openProjectById = useCallback(
@@ -1118,7 +1384,7 @@ export default function App() {
       }
       const projShots = data.project.shots || [];
       const hasAnyContent = projShots.some((s) => (s.prompt || '').trim() || (s.narration || '').trim());
-      const hasAnyReady = projShots.some((s) => Boolean(s.filename));
+      const hasAnyReady = projShots.some((s) => Boolean(s.filename || s.videoFilename));
       const targetStep = preferredStep || (hasAnyReady || hasAnyContent ? 2 : 1);
       setActiveView('studio');
       setActiveStep(targetStep);
@@ -1178,17 +1444,22 @@ export default function App() {
   }, [openProjectById]);
 
   const createBlankProject = useCallback(async () => {
-    const blankShots = [buildShot('', 0), buildShot('', 1)];
+    const isVid = homeCreationMode === 'video';
+    const blankShots = [buildShot('', 0), buildShot('', 1)].map((s) => ({
+      ...s,
+      duration: isVid ? 5 : 4,
+    }));
     const nextState = {
       projectId: '',
-      title: '新建分镜项目',
-      mode: 'storyboard',
+      title: isVid ? '新建音画短片' : '新建分镜项目',
+      mode: homeCreationMode,
       prefix: STYLE_CHIPS[0].prefix,
       negativePrompt: DEFAULT_NEGATIVE_PROMPT,
       seed,
       aspectValue,
       shots: blankShots,
     };
+    setMode(homeCreationMode);
     setProjectId(null);
     setTitle(nextState.title);
     setPrefix(nextState.prefix);
@@ -1202,8 +1473,8 @@ export default function App() {
     setActiveStep(1);
     if (nextPid) pushBrowserPath(buildStudioPath(nextPid, 1));
     setDrawerOpen(false);
-    pushToast('已创建空白分镜项目', 'success');
-  }, [aspectValue, buildShot, fetchLists, pushToast, saveProjectNow, seed]);
+    pushToast(isVid ? '已创建空白音画短片项目' : '已创建空白分镜项目', 'success');
+  }, [aspectValue, buildShot, fetchLists, homeCreationMode, pushToast, saveProjectNow, seed]);
 
   const handlePlayComposition = useCallback(
     async (c) => {
@@ -1335,6 +1606,9 @@ export default function App() {
 
       {activeView === 'home' ? (
         <HomePage
+          creationMode={homeCreationMode}
+          onCreationModeChange={setHomeCreationMode}
+          videoWorkflowLoaded={Boolean(health?.video_workflow_loaded)}
           storyIdea={storyIdea}
           onStoryIdeaChange={setStoryIdea}
           storyPlanMode={storyPlanMode}
@@ -1379,6 +1653,7 @@ export default function App() {
             activeStep={activeStep}
             onStepChange={navigateStep}
             onGoHome={() => navigateHome(true)}
+            mode={mode}
             shotCount={shots.length}
             readyCount={readyCount}
             ttsCount={ttsCount}
@@ -1387,6 +1662,11 @@ export default function App() {
 
           {activeStep === 1 ? (
             <StepOneScript
+              mode={mode}
+              onModeChange={(m) => {
+                setMode(m);
+                scheduleSave();
+              }}
               title={title}
               onTitleChange={(v) => {
                 setTitle(v);
@@ -1490,6 +1770,9 @@ export default function App() {
               onDuplicate={duplicateShot}
               onDelete={deleteShot}
               onReroll={handleRerollShot}
+              videoWorkflowLoaded={Boolean(health?.video_workflow_loaded)}
+              onGenerateVideoSingle={handleGenerateVideoSingle}
+              onToggleUseVideo={toggleShotUseVideo}
               onUploadImage={handleUploadShotImage}
               onPreview={setLightboxSrc}
               onPrevStep={() => navigateStep(1)}
@@ -1511,6 +1794,8 @@ export default function App() {
               onBurnSubtitlesChange={setBurnSubtitles}
               autoAlignTts={autoAlignTts}
               onAutoAlignTtsChange={setAutoAlignTts}
+              keepVideoAudio={keepVideoAudio}
+              onKeepVideoAudioChange={setKeepVideoAudio}
               audioFiles={audioFiles}
               bgmFilename={bgmFilename}
               onBgmFilenameChange={setBgmFilename}

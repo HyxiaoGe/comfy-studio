@@ -6,6 +6,7 @@ FFmpeg 静态分镜运镜合成器（纯 Python 标准库调用 ffmpeg）
 优先 h264_nvenc 硬编码并自动回退 libx264。
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -139,6 +140,45 @@ def _encode_args(use_nvenc):
     return ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
 
 
+def probe_media_info(path):
+    """使用 ffprobe 检测媒体文件的时长及是否包含视频/音频流。"""
+    if not path or not os.path.isfile(path):
+        return {"duration": 0.0, "has_video": False, "has_audio": False}
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return {"duration": 0.0, "has_video": True, "has_audio": False}
+    try:
+        r = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=codec_type",
+                "-of",
+                "json",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode != 0:
+            return {"duration": 0.0, "has_video": True, "has_audio": False}
+        data = json.loads(r.stdout or "{}")
+        dur_raw = (data.get("format") or {}).get("duration")
+        try:
+            dur = max(0.0, float(dur_raw or 0.0))
+        except (TypeError, ValueError):
+            dur = 0.0
+        streams = data.get("streams") or []
+        has_v = any(s.get("codec_type") == "video" for s in streams)
+        has_a = any(s.get("codec_type") == "audio" for s in streams)
+        return {"duration": dur, "has_video": has_v, "has_audio": has_a}
+    except Exception:  # noqa: BLE001
+        return {"duration": 0.0, "has_video": True, "has_audio": False}
+
+
 def render_shot_clip(image_path, out_clip_path, motion, width, height, duration, fps):
     """将单张静态图渲染为带运镜的中间视频片段。"""
     vf = build_motion_filter(motion, width, height, duration, fps)
@@ -150,6 +190,33 @@ def render_shot_clip(image_path, out_clip_path, motion, width, height, duration,
         cmd += ["-i", image_path]
     cmd += [
         "-vf", vf,
+        "-an",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "16",
+        "-pix_fmt", "yuv420p",
+        out_clip_path,
+    ]
+    _run_ffmpeg(cmd)
+
+
+def render_video_shot_clip(video_path, out_clip_path, width, height, duration, fps, src_duration=0.0):
+    """将 AI 视频分镜片段统一缩放裁切为目标分辨率、帧率与时长（不足时尾帧定格补齐）。"""
+    vf_parts = [
+        f"scale={width}:{height}:force_original_aspect_ratio=increase",
+        f"crop={width}:{height}",
+        "setsar=1",
+        f"fps={fps}",
+    ]
+    if src_duration > 0 and duration > src_duration + 0.05:
+        pad_s = max(0.05, duration - src_duration)
+        vf_parts.append(f"tpad=stop_mode=clone:stop_duration={pad_s:.3f}")
+    vf_parts.append("format=yuv420p")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-t", f"{duration:.3f}",
+        "-vf", ",".join(vf_parts),
         "-an",
         "-c:v", "libx264",
         "-preset", "ultrafast",
@@ -212,11 +279,12 @@ def _concat_with_xfade(
     use_nvenc,
     ass_path=None,
     tts_events=None,
+    video_audio_events=None,
     bgm_path=None,
     bgm_volume=0.35,
     total_duration=0.0,
 ):
-    """将多段中间视频用 xfade 转场拼接，可选烧录 ASS 字幕、逐镜 TTS 配音与循环淡出 BGM。"""
+    """将多段中间视频用 xfade 转场拼接，可选烧录 ASS 字幕、逐镜 TTS 配音、AI 原生环境音与循环淡出 BGM。"""
     cmd = ["ffmpeg", "-y"]
     for clip_path, _dur in clip_entries:
         cmd += ["-i", clip_path]
@@ -226,6 +294,12 @@ def _concat_with_xfade(
     for start_s, tpath in (tts_events or []):
         tts_inputs.append((next_input_idx, start_s))
         cmd += ["-i", tpath]
+        next_input_idx += 1
+
+    va_inputs = []
+    for start_s, clip_dur, vpath in (video_audio_events or []):
+        va_inputs.append((next_input_idx, start_s, clip_dur))
+        cmd += ["-i", vpath]
         next_input_idx += 1
 
     bgm_idx = None
@@ -277,6 +351,17 @@ def _concat_with_xfade(
         filter_parts.append(
             f"[{inp_idx}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,"
             f"adelay={delay_ms}|{delay_ms}[{lbl}]"
+        )
+        mix_labels.append(f"[{lbl}]")
+
+    va_vol = 0.28 if tts_inputs else 0.90
+    for idx, (inp_idx, start_s, clip_dur) in enumerate(va_inputs):
+        delay_ms = max(0, int(round(start_s * 1000)))
+        lbl = f"va{idx}"
+        filter_parts.append(
+            f"[{inp_idx}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"atrim=0:{max(0.1, clip_dur):.3f},asetpts=PTS-STARTPTS,"
+            f"volume={va_vol:.2f},adelay={delay_ms}|{delay_ms}[{lbl}]"
         )
         mix_labels.append(f"[{lbl}]")
 
@@ -361,15 +446,22 @@ def compose_storyboard_video(
         clip_entries = []
         sub_entries = []
         tts_events = []
+        video_audio_events = []
         cursor = 0.0
 
         for idx, shot in enumerate(shots):
-            img_path = shot["path"]
-            if not os.path.exists(img_path):
-                raise FileNotFoundError("找不到分镜图片：%s" % img_path)
+            vpath = shot.get("video_path")
+            use_video = bool(shot.get("use_video", bool(vpath))) and bool(vpath and os.path.isfile(vpath))
+            img_path = shot.get("path")
+            if not use_video and (not img_path or not os.path.exists(img_path)):
+                raise FileNotFoundError("找不到分镜素材：%s" % (img_path or vpath or ""))
 
-            dur = float(shot.get("duration") or DEFAULT_DURATION)
+            dur = float(shot.get("duration") or (5.0 if use_video else DEFAULT_DURATION))
             dur = max(1.0, min(15.0, dur))
+
+            v_info = probe_media_info(vpath) if use_video else {"duration": 0.0, "has_audio": False}
+            if use_video and v_info["duration"] > 0:
+                dur = max(dur, min(15.0, v_info["duration"]))
 
             tts_path = shot.get("tts_path")
             if tts_path and os.path.isfile(tts_path):
@@ -383,16 +475,26 @@ def compose_storyboard_video(
             if len(shots) > 1 and trans > 0 and dur <= trans + 0.2:
                 dur = trans + 0.5
 
-            motion = shot.get("motion") or "zoom_in"
-            if progress_cb:
-                progress_cb(idx, total_steps, f"正在渲染第 {idx + 1}/{len(shots)} 镜运镜 ({motion})")
             clip_path = os.path.join(tmp_dir, f"clip_{idx:03d}.mp4")
-            render_shot_clip(img_path, clip_path, motion, w, h, dur, fps)
+            if use_video:
+                if progress_cb:
+                    progress_cb(idx, total_steps, f"正在处理第 {idx + 1}/{len(shots)} 镜 AI 视频片段")
+                render_video_shot_clip(
+                    vpath, clip_path, w, h, dur, fps, src_duration=v_info["duration"]
+                )
+            else:
+                motion = shot.get("motion") or "zoom_in"
+                if progress_cb:
+                    progress_cb(idx, total_steps, f"正在渲染第 {idx + 1}/{len(shots)} 镜运镜 ({motion})")
+                render_shot_clip(img_path, clip_path, motion, w, h, dur, fps)
             clip_entries.append((clip_path, dur))
 
             start_t = cursor + (trans * 0.55 if idx > 0 and trans > 0 else 0.0)
             if tts_path:
                 tts_events.append((start_t, tts_path))
+            if use_video and shot.get("use_video_audio", True) and v_info["has_audio"]:
+                va_dur = min(dur, v_info["duration"] or dur)
+                video_audio_events.append((start_t, va_dur, vpath))
 
             narr = (shot.get("narration") or "").strip()
             if narr:
@@ -440,6 +542,7 @@ def compose_storyboard_video(
                     use_nvenc=True,
                     ass_path=ass_path,
                     tts_events=tts_events,
+                    video_audio_events=video_audio_events,
                     bgm_path=bgm_path,
                     bgm_volume=bgm_volume,
                     total_duration=total_duration,
@@ -455,6 +558,7 @@ def compose_storyboard_video(
                     use_nvenc=False,
                     ass_path=ass_path,
                     tts_events=tts_events,
+                    video_audio_events=video_audio_events,
                     bgm_path=bgm_path,
                     bgm_volume=bgm_volume,
                     total_duration=total_duration,
@@ -470,6 +574,7 @@ def compose_storyboard_video(
                 use_nvenc=False,
                 ass_path=ass_path,
                 tts_events=tts_events,
+                video_audio_events=video_audio_events,
                 bgm_path=bgm_path,
                 bgm_volume=bgm_volume,
                 total_duration=total_duration,

@@ -6,11 +6,13 @@ ComfyUI 公共客户端（纯 Python 标准库）
 """
 
 import json
+import mimetypes
 import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 DEFAULT_SERVER = "http://127.0.0.1:8188"
 
@@ -192,3 +194,47 @@ def download_outputs(server, entry, out_dir, file_id, media_keys=("images",), ov
     if not saved:
         raise RuntimeError("任务完成但 history 里没有输出文件——请检查 SaveImage/SaveVideo 节点")
     return saved
+
+
+def upload_image(server, local_path, overwrite=True, timeout=60):
+    """上传本地图片到 ComfyUI /upload/image，返回 LoadImage 可用的文件标识。"""
+    if not local_path or not os.path.isfile(local_path):
+        raise FileNotFoundError("找不到待上传参考图：%s" % local_path)
+    filename = os.path.basename(local_path)
+    ctype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    boundary = "----ComfyStudioBoundary%s" % uuid.uuid4().hex
+    with open(local_path, "rb") as f:
+        file_bytes = f.read()
+
+    parts = [
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="overwrite"\r\n\r\n'
+            f"{'true' if overwrite else 'false'}\r\n"
+        ).encode("utf-8"),
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="type"\r\n\r\ninput\r\n'
+        ).encode("utf-8"),
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="image"; filename="{filename}"\r\n'
+            f"Content-Type: {ctype}\r\n\r\n"
+        ).encode("utf-8"),
+        file_bytes,
+        f"\r\n--{boundary}--\r\n".encode("utf-8"),
+    ]
+    body = b"".join(parts)
+    url = server.rstrip("/") + "/upload/image"
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    req.add_header("Content-Length", str(len(body)))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", "replace")
+        raise RuntimeError("上传图片到 ComfyUI 失败 HTTP %s：%s" % (e.code, err_body[:400])) from e
+    name = res.get("name") or filename
+    subfolder = (res.get("subfolder") or "").strip("/")
+    return f"{subfolder}/{name}" if subfolder else name

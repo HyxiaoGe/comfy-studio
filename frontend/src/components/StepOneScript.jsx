@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import {
   ASPECT_RATIOS,
+  CREATION_MODES,
   IDEA_SUGGESTIONS,
   NARRATION_STYLES,
   STYLE_CHIPS,
@@ -38,6 +39,7 @@ function ScriptShotCard({
   shot,
   index,
   total,
+  isVideoMode = false,
   onChangeNarration,
   onChangePrompt,
   onMoveUp,
@@ -130,9 +132,13 @@ function ScriptShotCard({
           className="h-full"
           value={shot.prompt || ''}
           onChange={onChangePrompt}
-          label="英文生图提示词"
-          hint="自动拼接公共画风"
-          placeholder="点击填写英文画面描述（用逗号分隔视觉元素）…"
+          label={isVideoMode ? '英文视频镜头词（动作/运镜/音效）' : '英文生图提示词'}
+          hint={isVideoMode ? 'MiniMax H3 音画' : '自动拼接公共画风'}
+          placeholder={
+            isVideoMode
+              ? '英文动作、Camera 运镜与 Audio 环境音描述（逗号分隔）…'
+              : '点击填写英文画面描述（用逗号分隔视觉元素）…'
+          }
           highlightCamera
           minHeight={44}
         />
@@ -142,6 +148,8 @@ function ScriptShotCard({
 }
 
 export default function StepOneScript({
+  mode = 'storyboard',
+  onModeChange,
   title,
   onTitleChange,
   storyIdea,
@@ -321,19 +329,40 @@ export default function StepOneScript({
     <main className="max-w-[1440px] mx-auto px-4 lg:px-6 py-5 grid grid-cols-1 lg:grid-cols-[410px_minmax(0,1fr)] gap-5 items-stretch">
       {/* Left: AI Script Generator + Visual DNA */}
       <aside className="rounded-2xl border border-slate-800/90 bg-[#111827]/95 p-4 space-y-4 shadow-xl shadow-black/30 h-full">
-        {/* Project Title */}
-        <div>
-          <label htmlFor="step1-title" className="block text-xs font-semibold text-slate-300 mb-1.5">
-            项目名称
-          </label>
-          <input
-            id="step1-title"
-            type="text"
-            value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            placeholder="输入项目标题…"
-            className="w-full rounded-xl border border-slate-700/80 bg-[#0c121e] px-3 py-2 text-sm font-medium text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
-          />
+        {/* Project Title & Mode */}
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="step1-title" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              项目名称
+            </label>
+            <input
+              id="step1-title"
+              type="text"
+              value={title}
+              onChange={(e) => onTitleChange(e.target.value)}
+              placeholder="输入项目标题…"
+              className="w-full rounded-xl border border-slate-700/80 bg-[#0c121e] px-3 py-2 text-sm font-medium text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {onModeChange ? (
+            <div>
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-xs font-semibold text-slate-300">生成模式</span>
+                <span className="text-[11px] text-slate-500">
+                  {mode === 'video' ? '直出动态音画视频' : '绘本生图 + 运镜'}
+                </span>
+              </div>
+              <SegmentedControl
+                fullWidth
+                size="sm"
+                variant="subtle"
+                value={mode}
+                onChange={onModeChange}
+                options={CREATION_MODES}
+              />
+            </div>
+          ) : null}
         </div>
 
         {/* AI Full Storyboard Card */}
@@ -615,7 +644,7 @@ export default function StepOneScript({
                 disabled={shots.length === 0}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-45 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-blue-950/50 transition-colors cursor-pointer"
               >
-                <span>下一步：配音与生图</span>
+                <span>{mode === 'video' ? '下一步：配音与视频' : '下一步：配音与生图'}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -702,6 +731,7 @@ export default function StepOneScript({
                     shot={activeShot}
                     index={safeIndex}
                     total={shots.length}
+                    isVideoMode={mode === 'video'}
                     onChangeNarration={(val) => onChangeShotNarration(activeShot.uid, val)}
                     onChangePrompt={(val) => onChangeShotPrompt(activeShot.uid, val)}
                     onMoveUp={() => {

@@ -26,6 +26,7 @@ from core.comfy_client import (  # noqa: E402
     download_outputs,
     load_json,
     queue_prompt,
+    upload_image,
     wait_history,
 )
 from core.ffmpeg_composer import (  # noqa: E402
@@ -39,6 +40,7 @@ from core.ffmpeg_composer import (  # noqa: E402
     ensure_even,
     has_ffmpeg,
     has_subtitle_filter,
+    probe_media_info,
 )
 from core.image_runner import (  # noqa: E402
     DEFAULT_SEED,
@@ -59,15 +61,18 @@ from core.tts_client import (  # noqa: E402
     get_tts_config,
     synthesize_speech,
 )
+from core.video_runner import build_video_workflow  # noqa: E402
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 COMFYUI = DEFAULT_SERVER
 WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "sdxl_image_api.json")
+VIDEO_WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "minimax_h3_video.json")
 BGM_WORKFLOW_PATH = os.path.join(BASE_DIR, "workflows", "ace_step_bgm_api.json")
 WEB_DIST_DIR = os.path.join(BASE_DIR, "web", "dist")
 WEB_INDEX_PATH = os.path.join(BASE_DIR, "web", "index.html")
 OUT_DIR = os.path.join(BASE_DIR, "outputs", "images")
+VIDEO_DIR = os.path.join(BASE_DIR, "outputs", "videos")
 AUDIO_DIR = os.path.join(BASE_DIR, "outputs", "audio")
 TTS_DIR = os.path.join(BASE_DIR, "outputs", "tts")
 
@@ -192,6 +197,53 @@ def new_job(
         "status": "queued",
         "done": 0,
         "total": len(full_prompts),
+        "current_index": 0,
+        "results": [],
+        "items": [],
+        "error": "",
+    }
+    with jobs_lock:
+        jobs[job_id] = job
+    get_store().create_job(job)
+    job_queue.put(job_id)
+    return job
+
+
+def new_video_job(
+    shots,
+    seed,
+    prefix="",
+    width=DEFAULT_WIDTH,
+    height=DEFAULT_HEIGHT,
+    project_id="",
+):
+    job_id = uuid.uuid4().hex[:12]
+    w, h = _normalize_size(width, height)
+    norm_shots = []
+    for s in shots:
+        p = merge_prompt(prefix, s.get("prompt") or "")
+        try:
+            dur = max(3.0, min(10.0, float(s.get("duration") or 5.0)))
+        except (TypeError, ValueError):
+            dur = 5.0
+        norm_shots.append({
+            "prompt": p,
+            "duration": dur,
+            "first_frame_filename": s.get("first_frame_filename") or "",
+        })
+    job = {
+        "id": job_id,
+        "project_id": project_id or "",
+        "mode": "video",
+        "prompts": [s["prompt"] for s in norm_shots],
+        "video_shots": norm_shots,
+        "negative_prompt": "",
+        "seed": seed,
+        "width": w,
+        "height": h,
+        "status": "queued",
+        "done": 0,
+        "total": len(norm_shots),
         "current_index": 0,
         "results": [],
         "items": [],
@@ -335,6 +387,73 @@ def run_job(job_id):
         st.update_job(job_id, done=1, results=results_copy, items=items_copy, status="done")
         with jobs_lock:
             job["status"] = "done"
+        return
+
+    if job.get("mode") == "video":
+        template = load_json(VIDEO_WORKFLOW_PATH)
+        video_shots = job.get("video_shots") or [
+            {"prompt": p, "duration": 5.0, "first_frame_filename": ""}
+            for p in (job.get("prompts") or [])
+        ]
+        for i, vshot in enumerate(video_shots):
+            with jobs_lock:
+                job["current_index"] = i + 1
+            st.update_job(job_id, current_index=i + 1)
+
+            clip_id = "%s_v%02d" % (job_id, i + 1)
+            clip_seed = int(job.get("seed", DEFAULT_SEED)) + i
+            first_frame_name = None
+            ff_fname = (vshot.get("first_frame_filename") or "").strip()
+            if ff_fname and _safe_filename(ff_fname):
+                ff_local = os.path.join(OUT_DIR, ff_fname)
+                if os.path.isfile(ff_local):
+                    first_frame_name = upload_image(COMFYUI, ff_local)
+
+            wf = build_video_workflow(
+                template,
+                prompt=vshot.get("prompt") or "",
+                seed=clip_seed,
+                duration=vshot.get("duration") or 5.0,
+                width=job["width"],
+                height=job["height"],
+                first_frame_name=first_frame_name,
+                filename_prefix=f"video/{clip_id}",
+            )
+            prompt_id = queue_prompt(COMFYUI, wf, CLIENT_ID)
+            entry = wait_history(COMFYUI, prompt_id, timeout=max(DEFAULT_TIMEOUT, 1800), poll_interval=5)
+            saved = download_outputs(
+                COMFYUI,
+                entry,
+                VIDEO_DIR,
+                clip_id,
+                media_keys=("videos", "gifs", "images"),
+                overwrite=True,
+            )
+            with jobs_lock:
+                for p in saved:
+                    fname = os.path.basename(p)
+                    info = probe_media_info(p)
+                    job["results"].append(fname)
+                    job["items"].append({
+                        "filename": fname,
+                        "url": f"/videos/{fname}",
+                        "path": os.path.abspath(p),
+                        "prompt": vshot.get("prompt") or "",
+                        "duration": round(info["duration"] or float(vshot.get("duration") or 5.0), 2),
+                        "has_audio": bool(info["has_audio"]),
+                        "mode": "i2v" if first_frame_name else "t2v",
+                        "seed": clip_seed,
+                        "width": job["width"],
+                        "height": job["height"],
+                    })
+                job["done"] = i + 1
+                results_copy = list(job["results"])
+                items_copy = list(job["items"])
+            st.update_job(job_id, done=i + 1, results=results_copy, items=items_copy)
+
+        with jobs_lock:
+            job["status"] = "done"
+        st.update_job(job_id, status="done")
         return
 
     template = load_json(WORKFLOW_PATH)
@@ -487,6 +606,7 @@ def health():
     tts_cfg = get_tts_config()
     return {
         "workflow_loaded": os.path.exists(WORKFLOW_PATH),
+        "video_workflow_loaded": os.path.exists(VIDEO_WORKFLOW_PATH),
         "bgm_workflow_loaded": os.path.exists(BGM_WORKFLOW_PATH),
         "comfyui": "ok" if check_comfyui_health(COMFYUI) else "unreachable",
         "ffmpeg": has_ffmpeg(),
@@ -668,6 +788,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             ctype, _enc = mimetypes.guess_type(name)
             self._file(os.path.join(OUT_DIR, name), ctype or "application/octet-stream")
+        elif path.startswith("/videos/"):
+            name = path[len("/videos/"):]
+            if not _safe_filename(name):
+                self._json({"error": "文件名不对"}, 400)
+                return
+            ctype, _enc = mimetypes.guess_type(name)
+            self._file(
+                os.path.join(VIDEO_DIR, name),
+                ctype or "video/mp4",
+                support_range=True,
+            )
         elif path.startswith("/composed/"):
             name = path[len("/composed/"):]
             if not _safe_filename(name):
@@ -682,7 +813,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self._serve_frontend_asset(path):
             return
         elif (
-            not path.startswith(("/api/", "/assets/", "/results/", "/tts/", "/audio/", "/composed/"))
+            not path.startswith(("/api/", "/assets/", "/results/", "/videos/", "/tts/", "/audio/", "/composed/"))
             and "." not in os.path.basename(path)
         ):
             dist_index = os.path.join(WEB_DIST_DIR, "index.html")
@@ -695,6 +826,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/generate":
             self._handle_generate()
+        elif path == "/api/generate-video":
+            self._handle_generate_video()
         elif path == "/api/compose":
             self._handle_compose()
         elif path == "/api/projects":
@@ -815,6 +948,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         else:
             target_duration = raw_dur
+        raw_mode = (data.get("mode") or "storyboard").strip().lower()
+        mode = "video" if raw_mode == "video" else "storyboard"
         try:
             res = generate_storyboard(
                 idea=idea,
@@ -822,6 +957,7 @@ class Handler(BaseHTTPRequestHandler):
                 target_duration=target_duration,
                 visual_style=data.get("visual_style") or "",
                 narration_style=data.get("narration_style") or "绘本故事",
+                mode=mode,
             )
             self._json(res)
         except Exception as e:  # noqa: BLE001
@@ -962,6 +1098,62 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._json({"job_id": job["id"]}, 202)
 
+    def _handle_generate_video(self):
+        if not os.path.isfile(VIDEO_WORKFLOW_PATH):
+            self._json({"error": "服务端缺少 MiniMax H3 视频工作流模板"}, 500)
+            return
+        data, err = self._read_json_body()
+        if err:
+            self._json({"error": err}, 400)
+            return
+        raw_shots = data.get("shots")
+        if not isinstance(raw_shots, list) or not raw_shots:
+            self._json({"error": "shots 不能为空，请至少提供 1 个分镜"}, 400)
+            return
+        if len(raw_shots) > 30:
+            self._json({"error": "单次视频队列最多 30 个分镜"}, 400)
+            return
+
+        cleaned_shots = []
+        for idx, item in enumerate(raw_shots):
+            if isinstance(item, str):
+                item = {"prompt": item}
+            if not isinstance(item, dict):
+                self._json({"error": f"第 {idx + 1} 个分镜格式不对"}, 400)
+                return
+            prompt = (item.get("prompt") or "").strip()
+            ff = (item.get("first_frame_filename") or "").strip()
+            if not prompt and not ff:
+                self._json({"error": f"第 {idx + 1} 个分镜缺少提示词或参考首帧图"}, 400)
+                return
+            if ff:
+                if not _safe_filename(ff):
+                    self._json({"error": f"第 {idx + 1} 个参考图文件名不合法"}, 400)
+                    return
+                if not os.path.isfile(os.path.join(OUT_DIR, ff)):
+                    self._json({"error": f"找不到参考首帧图：{ff}"}, 404)
+                    return
+            cleaned_shots.append({
+                "prompt": prompt or "gentle natural motion, subtle ambient sound, cinematic",
+                "duration": item.get("duration") or 5.0,
+                "first_frame_filename": ff,
+            })
+
+        seed = data.get("seed")
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            seed = DEFAULT_SEED
+        prefix = data.get("prefix") if isinstance(data.get("prefix"), str) else ""
+        project_id = data.get("project_id") if isinstance(data.get("project_id"), str) else ""
+        job = new_video_job(
+            cleaned_shots,
+            seed=seed,
+            prefix=prefix,
+            width=data.get("width"),
+            height=data.get("height"),
+            project_id=project_id,
+        )
+        self._json({"job_id": job["id"]}, 202)
+
     def _handle_compose(self):
         if not has_ffmpeg():
             self._json({"error": "服务端未检测到 ffmpeg，无法合成视频"}, 500)
@@ -984,21 +1176,39 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(item, dict):
                 self._json({"error": f"第 {idx + 1} 个分镜参数格式不对"}, 400)
                 return
-            fname = item.get("filename")
-            if not _safe_filename(fname):
-                self._json({"error": f"第 {idx + 1} 个分镜文件名不合法"}, 400)
+
+            fname = (item.get("filename") or "").strip()
+            img_path = None
+            if fname:
+                if not _safe_filename(fname):
+                    self._json({"error": f"第 {idx + 1} 个分镜图片文件名不合法"}, 400)
+                    return
+                cand_img = os.path.join(OUT_DIR, fname)
+                if os.path.exists(cand_img):
+                    img_path = cand_img
+
+            vname = (item.get("video_filename") or "").strip()
+            video_path = None
+            if vname:
+                if not _safe_filename(vname):
+                    self._json({"error": f"第 {idx + 1} 个分镜视频文件名不合法"}, 400)
+                    return
+                cand_vid = os.path.join(VIDEO_DIR, vname)
+                if os.path.exists(cand_vid):
+                    video_path = cand_vid
+
+            use_video = bool(item.get("use_video", bool(video_path))) and bool(video_path)
+            if not use_video and not img_path:
+                self._json({"error": f"第 {idx + 1} 个分镜缺少可用的图片或 AI 视频素材"}, 404)
                 return
-            img_path = os.path.join(OUT_DIR, fname)
-            if not os.path.exists(img_path):
-                self._json({"error": f"找不到分镜图片：{fname}"}, 404)
-                return
+
             motion = (item.get("motion") or "zoom_in").strip().lower()
             if motion not in SUPPORTED_MOTIONS:
                 motion = "zoom_in"
             try:
-                dur = float(item.get("duration") or DEFAULT_DURATION)
+                dur = float(item.get("duration") or (5.0 if use_video else DEFAULT_DURATION))
             except (TypeError, ValueError):
-                dur = DEFAULT_DURATION
+                dur = 5.0 if use_video else DEFAULT_DURATION
             dur = max(1.0, min(15.0, dur))
             narration = item.get("narration") if isinstance(item.get("narration"), str) else ""
             tts_fname = item.get("tts_filename")
@@ -1010,15 +1220,21 @@ class Handler(BaseHTTPRequestHandler):
                 cand_tts = os.path.join(TTS_DIR, tts_fname.strip())
                 if os.path.isfile(cand_tts):
                     tts_path = cand_tts
+            use_video_audio = bool(item.get("use_video_audio", True))
             shots.append({
-                "path": img_path,
+                "path": img_path or "",
+                "video_path": video_path or "",
+                "use_video": use_video,
+                "use_video_audio": use_video_audio,
                 "motion": motion,
                 "duration": dur,
                 "narration": narration,
                 "tts_path": tts_path,
             })
             shots_meta.append({
-                "filename": fname,
+                "filename": fname if img_path else "",
+                "video_filename": vname if video_path else "",
+                "use_video": use_video,
                 "motion": motion,
                 "duration": dur,
                 "narration": narration,
